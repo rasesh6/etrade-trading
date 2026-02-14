@@ -120,14 +120,15 @@ class ETradeClient:
         self.access_token = access_token
         self.access_token_secret = access_token_secret
 
-        # Create OAuth1Session directly with stored tokens
+        # Create OAuth1Session with proper signing
         self.session = OAuth1Session(
             consumer_key=self.consumer_key,
             consumer_secret=self.consumer_secret,
             access_token=access_token,
-            access_token_secret=access_token_secret
+            access_token_secret=access_token_secret,
+            signature_type='auth_header'  # Put OAuth in Authorization header
         )
-        logger.info("OAuth session created from stored tokens")
+        logger.info(f"OAuth session created from stored tokens, base_url: {self.base_url}")
 
     def _make_request(self, method, endpoint, params=None, data=None, headers=None):
         """
@@ -153,17 +154,22 @@ class ETradeClient:
             default_headers.update(headers)
 
         try:
+            logger.info(f"Making {method} request to {url}")
+
             if method == 'GET':
-                response = self.session.get(url, params=params, headers=default_headers, header_auth=True)
+                response = self.session.get(url, params=params, headers=default_headers)
             elif method == 'POST':
-                response = self.session.post(url, params=params, data=data, headers=default_headers, header_auth=True)
+                response = self.session.post(url, params=params, data=data, headers=default_headers)
             elif method == 'PUT':
-                response = self.session.put(url, params=params, data=data, headers=default_headers, header_auth=True)
+                response = self.session.put(url, params=params, data=data, headers=default_headers)
             else:
                 raise Exception(f"Unsupported method: {method}")
 
-            logger.debug(f"API Request: {method} {url}")
-            logger.debug(f"Response Status: {response.status_code}")
+            # Check if response is valid
+            if response is None:
+                raise Exception("API returned None response")
+
+            logger.info(f"Response Status: {response.status_code}")
 
             if response.status_code == 204:
                 return {'status': 'success', 'data': None}
@@ -172,10 +178,10 @@ class ETradeClient:
                 error_msg = "Unknown error"
                 try:
                     error_data = response.json()
-                    if 'Error' in error_data:
+                    if error_data and 'Error' in error_data:
                         error_msg = error_data['Error'].get('message', str(error_data))
                 except:
-                    error_msg = response.text[:200]
+                    error_msg = response.text[:200] if response.text else "No error message"
                 raise Exception(f"API Error ({response.status_code}): {error_msg}")
 
             return response.json()
