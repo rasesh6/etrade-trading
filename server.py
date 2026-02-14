@@ -533,6 +533,43 @@ def health():
     })
 
 
+@app.route('/api/debug/test')
+def debug_test():
+    """Debug endpoint to test API connection"""
+    try:
+        client = _get_authenticated_client()
+
+        # Test raw API call
+        import requests
+        url = f"{client.base_url}/v1/accounts/list.json"
+
+        # Log session details
+        session_info = {
+            'has_session': client.session is not None,
+            'access_token': client.access_token[:20] + '...' if client.access_token else None,
+            'consumer_key': client.consumer_key[:10] + '...' if client.consumer_key else None,
+            'base_url': client.base_url
+        }
+
+        # Try raw request
+        try:
+            response = client.session.get(url, headers={'consumerKey': client.consumer_key}, header_auth=True)
+            raw_response = {
+                'status_code': response.status_code,
+                'text': response.text[:500] if response.text else None
+            }
+        except Exception as e:
+            raw_response = {'error': str(e)}
+
+        return jsonify({
+            'session_info': session_info,
+            'raw_response': raw_response
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     debug = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
