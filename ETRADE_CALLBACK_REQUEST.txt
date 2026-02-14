@@ -1,0 +1,56 @@
+================================================================================
+E*TRADE API CALLBACK URL REQUEST
+================================================================================
+
+Send this to E*TRADE Customer Service via Secure Message
+
+--------------------------------------------------------------------------------
+Subject: Technical Issues
+Topic: E*TRADE API
+--------------------------------------------------------------------------------
+
+Message:
+
+Hello,
+
+I would like to configure a callback URL for my E*TRADE API application.
+
+Sandbox Consumer Key: 8a18ff810b153dfd5d9ddce27667d63c
+Production Consumer Key: 353ce1949c42c71cec4785343aa36539
+
+Callback URL: https://web-production-9f73cd.up.railway.app/api/auth/callback
+
+Please configure this callback URL for both my sandbox and production keys.
+
+Thank you.
+
+================================================================================
+KEY INFORMATION
+================================================================================
+
+API Keys:
+---------
+Sandbox Key:    8a18ff810b153dfd5d9ddce27667d63c
+Sandbox Secret: 58d4a4193e4efa091657d60079a63e31b472d559c48c890c660b29f4a57e2cbb
+
+Production Key:    353ce1949c42c71cec4785343aa36539
+Production Secret: 6bef9b896a9d6d4c42807eb5d223b645862cfca48f986c0a3fea4b8dce43a3f5
+
+URLs:
+-----
+Trading UI:    https://web-production-9f73cd.up.railway.app
+GitHub Repo:   https://github.com/rasesh6/etrade-trading
+Callback URL:  https://web-production-9f73cd.up.railway.app/api/auth/callback
+
+How to Send Secure Message to E*TRADE:
+--------------------------------------
+1. Login to your E*TRADE account at https://us.etrade.com
+2. Go to Customer Service → Send a Secure Message
+3. Subject: "Technical Issues"
+4. Topic: "E*TRADE API"
+5. Copy/paste the message above
+6. Send
+
+Expected Response Time: 1-2 business days
+
+================================================================================
