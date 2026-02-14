@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E*TRADE Stock Trading</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>E*TRADE Stock Trading</h1>
+            <div class="header-badges">
+                <span class="badge" id="env-badge">{{ environment }}</span>
+                <span class="badge auth-badge" id="auth-badge">Not Connected</span>
+            </div>
+        </header>
+
+        <!-- Auth Section -->
+        <div class="card auth-card" id="auth-section">
+            <h2>Authentication</h2>
+            <div id="auth-not-authenticated">
+                <p class="info-text">Click to start OAuth login flow. You'll authorize the app on E*TRADE's website and enter a verification code.</p>
+                <button class="btn btn-primary" onclick="startLogin()">Connect to E*TRADE</button>
+            </div>
+            <div id="auth-flow" style="display: none;">
+                <div class="auth-steps">
+                    <p><strong>Step 1:</strong> Click the link below to authorize</p>
+                    <a id="auth-url" href="#" target="_blank" class="auth-link">Open E*TRADE Authorization</a>
+                    <p><strong>Step 2:</strong> Enter the verification code from the page</p>
+                    <div class="input-group">
+                        <input type="text" id="verifier-code" placeholder="Enter verification code">
+                        <button class="btn btn-success" onclick="verifyCode()">Verify</button>
+                    </div>
+                </div>
+            </div>
+            <div id="auth-authenticated" style="display: none;">
+                <p class="success-text">Authenticated</p>
+                <p class="small-text">Token expires: <span id="token-expires">-</span></p>
+                <button class="btn btn-danger btn-small" onclick="logout()">Disconnect</button>
+            </div>
+        </div>
+
+        <!-- Main Grid -->
+        <div class="main-grid">
+            <!-- Left Column: Account & Portfolio -->
+            <div class="column">
+                <!-- Account Selection -->
+                <div class="card">
+                    <h2>Account</h2>
+                    <select id="account-select" onchange="loadAccountInfo()">
+                        <option value="">Select an account...</option>
+                    </select>
+                    <div id="account-balance" class="balance-display" style="display: none;">
+                        <div class="balance-row">
+                            <span>Net Account Value:</span>
+                            <span id="net-value">-</span>
+                        </div>
+                        <div class="balance-row">
+                            <span>Cash Available:</span>
+                            <span id="cash-available">-</span>
+                        </div>
+                        <div class="balance-row">
+                            <span>Buying Power:</span>
+                            <span id="buying-power">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Portfolio -->
+                <div class="card">
+                    <h2>Positions</h2>
+                    <div id="positions-list" class="positions-list">
+                        <p class="placeholder-text">Select an account to view positions</p>
+                    </div>
+                </div>
+
+                <!-- Open Orders -->
+                <div class="card">
+                    <h2>Open Orders</h2>
+                    <div id="orders-list" class="orders-list">
+                        <p class="placeholder-text">No open orders</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Order Entry -->
+            <div class="column">
+                <!-- Quote Display -->
+                <div class="card quote-card">
+                    <h2>Market Quote</h2>
+                    <div class="quote-input">
+                        <input type="text" id="quote-symbol" placeholder="Symbol (e.g., AAPL)" maxlength="5" style="text-transform: uppercase;">
+                        <button class="btn btn-secondary" onclick="fetchQuote()">Get Quote</button>
+                    </div>
+                    <div id="quote-display" class="quote-display" style="display: none;">
+                        <div class="quote-header">
+                            <span class="quote-symbol" id="q-symbol">-</span>
+                            <span class="quote-price" id="q-last">-</span>
+                        </div>
+                        <div class="quote-change" id="q-change">-</div>
+                        <div class="quote-details">
+                            <div class="quote-detail">
+                                <span class="label">BID</span>
+                                <span class="value bid" id="q-bid">-</span>
+                                <span class="size" id="q-bid-size">-</span>
+                            </div>
+                            <div class="quote-detail">
+                                <span class="label">ASK</span>
+                                <span class="value ask" id="q-ask">-</span>
+                                <span class="size" id="q-ask-size">-</span>
+                            </div>
+                        </div>
+                        <div class="quote-extra">
+                            <span>Vol: <span id="q-volume">-</span></span>
+                            <span>Day: <span id="q-range">-</span></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Order Form -->
+                <div class="card order-card">
+                    <h2>Place Order</h2>
+
+                    <div class="form-group">
+                        <label>Symbol</label>
+                        <input type="text" id="order-symbol" placeholder="e.g., AAPL" maxlength="5" style="text-transform: uppercase;">
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Quantity</label>
+                            <input type="number" id="order-quantity" value="1" min="1" max="100000">
+                        </div>
+                        <div class="form-group">
+                            <label>Order Type</label>
+                            <select id="order-type" onchange="toggleLimitPrice()">
+                                <option value="MARKET">Market</option>
+                                <option value="LIMIT">Limit</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="limit-price-section" class="limit-section" style="display: none;">
+                        <label>Limit Price</label>
+                        <div class="price-source-selector">
+                            <button class="price-source-btn active" data-source="manual" onclick="setPriceSource('manual')">Manual</button>
+                            <button class="price-source-btn" data-source="bid" onclick="setPriceSource('bid')">BID</button>
+                            <button class="price-source-btn" data-source="ask" onclick="setPriceSource('ask')">ASK</button>
+                        </div>
+                        <div id="manual-price-input">
+                            <div class="price-input">
+                                <span>$</span>
+                                <input type="number" id="limit-price" placeholder="0.00" step="0.01" min="0.01">
+                            </div>
+                        </div>
+                        <div id="market-price-display" style="display: none;" class="market-price-info">
+                            Will use <strong id="price-source-label">-</strong> price at order time
+                        </div>
+                    </div>
+
+                    <div class="side-selector">
+                        <button class="side-btn buy active" onclick="setSide('BUY')">
+                            <span class="side-label">BUY</span>
+                        </button>
+                        <button class="side-btn sell" onclick="setSide('SELL')">
+                            <span class="side-label">SELL</span>
+                        </button>
+                    </div>
+
+                    <div class="order-summary">
+                        <h3>Order Summary</h3>
+                        <div class="summary-row">
+                            <span>Action:</span>
+                            <span id="sum-action" class="buy-text">BUY</span>
+                        </div>
+                        <div class="summary-row">
+                            <span>Symbol:</span>
+                            <span id="sum-symbol">-</span>
+                        </div>
+                        <div class="summary-row">
+                            <span>Quantity:</span>
+                            <span id="sum-quantity">1</span>
+                        </div>
+                        <div class="summary-row">
+                            <span>Type:</span>
+                            <span id="sum-type">Market</span>
+                        </div>
+                        <div class="summary-row" id="sum-price-row" style="display: none;">
+                            <span>Limit Price:</span>
+                            <span id="sum-price">-</span>
+                        </div>
+                        <div class="summary-row" id="sum-est-row" style="display: none;">
+                            <span>Est. Total:</span>
+                            <span id="sum-est">-</span>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-buy" id="place-order-btn" onclick="placeOrder()">
+                        Place Buy Order
+                    </button>
+                </div>
+
+                <!-- Response -->
+                <div id="response-area" class="response-area" style="display: none;">
+                    <div id="response-content"></div>
+                    <button class="btn btn-small btn-secondary" onclick="clearResponse()">Clear</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Flow ID storage -->
+    <input type="hidden" id="flow-id" value="">
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
