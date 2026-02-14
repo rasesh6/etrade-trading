@@ -11,7 +11,7 @@ Wraps all E*TRADE API functionality:
 import json
 import random
 import logging
-from rauth import OAuth1Service
+from rauth import OAuth1Service, OAuth1Session
 from requests import Session
 from config import (
     get_base_url, get_credentials,
@@ -120,8 +120,14 @@ class ETradeClient:
         self.access_token = access_token
         self.access_token_secret = access_token_secret
 
-        # Create session with existing tokens using the existing OAuth service
-        self.session = self.oauth_service.get_session(access_token, access_token_secret)
+        # Create OAuth1Session directly with stored tokens
+        self.session = OAuth1Session(
+            consumer_key=self.consumer_key,
+            consumer_secret=self.consumer_secret,
+            access_token=access_token,
+            access_token_secret=access_token_secret
+        )
+        logger.info("OAuth session created from stored tokens")
 
     def _make_request(self, method, endpoint, params=None, data=None, headers=None):
         """
