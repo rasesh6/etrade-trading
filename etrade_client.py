@@ -196,10 +196,16 @@ class ETradeClient:
         response = self._make_request('GET', '/v1/accounts/list.json')
 
         accounts = []
-        if 'AccountListResponse' in response:
-            if 'Accounts' in response['AccountListResponse']:
+        if response is None:
+            logger.warning("Accounts API returned None")
+            return accounts
+
+        logger.info(f"Accounts API response: {response}")
+
+        if 'AccountListResponse' in response and response['AccountListResponse'] is not None:
+            if 'Accounts' in response['AccountListResponse'] and response['AccountListResponse']['Accounts'] is not None:
                 account_data = response['AccountListResponse']['Accounts']
-                if 'Account' in account_data:
+                if 'Account' in account_data and account_data['Account'] is not None:
                     accounts = account_data['Account']
                     # Filter out closed accounts
                     accounts = [a for a in accounts if a.get('accountStatus') != 'CLOSED']
@@ -271,8 +277,14 @@ class ETradeClient:
             f'/v1/market/quote/{symbol.upper()}.json'
         )
 
-        if 'QuoteResponse' in response:
-            if 'QuoteData' in response['QuoteResponse']:
+        if response is None:
+            logger.warning(f"Quote API returned None for {symbol}")
+            return None
+
+        logger.info(f"Quote API response for {symbol}: {response}")
+
+        if 'QuoteResponse' in response and response['QuoteResponse'] is not None:
+            if 'QuoteData' in response['QuoteResponse'] and response['QuoteResponse']['QuoteData'] is not None:
                 quotes = response['QuoteResponse']['QuoteData']
                 if isinstance(quotes, list) and len(quotes) > 0:
                     return quotes[0]

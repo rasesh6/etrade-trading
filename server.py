@@ -243,23 +243,37 @@ def get_quote(symbol):
             'previous_close': None
         }
 
-        if 'All' in quote:
-            all_data = quote['All']
-            result['last_price'] = all_data.get('lastTrade')
-            result['bid'] = all_data.get('bid')
-            result['ask'] = all_data.get('ask')
-            result['bid_size'] = all_data.get('bidSize')
-            result['ask_size'] = all_data.get('askSize')
-            result['change'] = all_data.get('changeClose')
-            result['change_percent'] = all_data.get('changeClosePercentage')
-            result['volume'] = all_data.get('totalVolume')
-            result['high'] = all_data.get('high')
-            result['low'] = all_data.get('low')
-            result['open'] = all_data.get('open')
-            result['previous_close'] = all_data.get('previousClose')
+        # Handle None response
+        if quote is None:
+            return jsonify({'success': False, 'error': 'No quote data returned from API'}), 500
 
-        if 'Product' in quote:
-            result['symbol'] = quote['Product'].get('symbol', symbol.upper())
+        # Check for error in response
+        if isinstance(quote, dict):
+            if 'QuoteResponse' in quote and quote['QuoteResponse'] is not None:
+                qr = quote['QuoteResponse']
+                if 'Messages' in qr and qr['Messages'] is not None:
+                    if 'Message' in qr['Messages']:
+                        msg = qr['Messages']['Message']
+                        if isinstance(msg, list) and len(msg) > 0:
+                            return jsonify({'success': False, 'error': msg[0].get('description', 'Quote error')}), 500
+
+            if 'All' in quote and quote['All'] is not None:
+                all_data = quote['All']
+                result['last_price'] = all_data.get('lastTrade')
+                result['bid'] = all_data.get('bid')
+                result['ask'] = all_data.get('ask')
+                result['bid_size'] = all_data.get('bidSize')
+                result['ask_size'] = all_data.get('askSize')
+                result['change'] = all_data.get('changeClose')
+                result['change_percent'] = all_data.get('changeClosePercentage')
+                result['volume'] = all_data.get('totalVolume')
+                result['high'] = all_data.get('high')
+                result['low'] = all_data.get('low')
+                result['open'] = all_data.get('open')
+                result['previous_close'] = all_data.get('previousClose')
+
+            if 'Product' in quote and quote['Product'] is not None:
+                result['symbol'] = quote['Product'].get('symbol', symbol.upper())
 
         return jsonify({'success': True, 'quote': result})
 
