@@ -2,6 +2,9 @@
 
 A simple, efficient web-based trading interface for E*TRADE.
 
+**Live URL**: https://web-production-9f73cd.up.railway.app
+**GitHub**: https://github.com/rasesh6/etrade-trading
+
 ## Features
 
 - OAuth 1.0a authentication with token persistence (Redis)

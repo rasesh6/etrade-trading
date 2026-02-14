@@ -1,6 +1,9 @@
 """
 E*TRADE Trading System Configuration
 
+Railway URL: https://web-production-9f73cd.up.railway.app
+GitHub: https://github.com/rasesh6/etrade-trading
+
 API Keys are loaded from environment variables.
 Set these in Railway or your local .env file.
 """
