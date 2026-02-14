@@ -120,15 +120,8 @@ class ETradeClient:
         self.access_token = access_token
         self.access_token_secret = access_token_secret
 
-        # Create session with existing tokens
-        self.session = OAuth1Service(
-            name='etrade',
-            consumer_key=self.consumer_key,
-            consumer_secret=self.consumer_secret,
-            access_token=access_token,
-            access_token_secret=access_token_secret,
-            base_url=self.base_url
-        ).get_session(access_token, access_token_secret)
+        # Create session with existing tokens using the existing OAuth service
+        self.session = self.oauth_service.get_session(access_token, access_token_secret)
 
     def _make_request(self, method, endpoint, params=None, data=None, headers=None):
         """
