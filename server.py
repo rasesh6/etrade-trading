@@ -424,7 +424,7 @@ def place_order():
 
         # Step 2: Place order with previewId (required)
         import time
-        time.sleep(1)  # Small delay between preview and place
+        time.sleep(3)  # Increased delay - E*TRADE needs time to register preview
         logger.info(f"Placing order with previewId: {preview_id}")
         result = client.place_order(account_id_key, order_data, preview_id=preview_id, client_order_id=client_order_id)
 

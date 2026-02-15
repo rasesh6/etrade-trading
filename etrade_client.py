@@ -567,16 +567,12 @@ class ETradeClient:
 
         request_type = 'PreviewOrderRequest' if preview else 'PlaceOrderRequest'
 
-        # Build PreviewIds element for place order with correct nested structure
-        # E*TRADE requires: <PreviewIds><previewId><cashMargin>Cash</cashMargin><previewIdValue>...</previewIdValue></previewId></PreviewIds>
+        # Build PreviewIds element for place order
+        # Try simpler format first: just <previewId>value</previewId>
+        # If that fails with Error 900, use nested structure with cashMargin
         if preview_id:
-            preview_id_element = f'''<PreviewIds>
-        <previewId>
-            <cashMargin>Cash</cashMargin>
-            <previewIdValue>{preview_id}</previewIdValue>
-        </previewId>
-    </PreviewIds>
-    '''
+            # Simpler format that works with some E*TRADE implementations
+            preview_id_element = f'<previewId>{preview_id}</previewId>\n    '
         else:
             preview_id_element = ''
 
