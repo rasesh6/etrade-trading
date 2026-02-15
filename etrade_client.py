@@ -493,13 +493,11 @@ class ETradeClient:
             client_order_id = str(random.randint(1000000000, 9999999999))
             logger.warning(f"No client_order_id provided, generated new one: {client_order_id}")
 
-        # Build XML payload with same clientOrderId as preview
-        payload = self._build_order_payload(order_data, preview=False, client_order_id=client_order_id)
+        # Build XML payload with previewId included properly
+        payload = self._build_order_payload(order_data, preview=False, client_order_id=client_order_id, preview_id=preview_id)
 
-        # Add preview ID to payload for place order
         if preview_id:
-            payload = payload.replace('<PlaceOrderRequest>', f'<PlaceOrderRequest><previewId>{preview_id}</previewId>')
-            logger.info(f"Added previewId to payload: {preview_id}")
+            logger.info(f"Building place order with previewId: {preview_id}")
         else:
             logger.error("NO PREVIEW_ID - E*TRADE will reject this order!")
 
@@ -529,7 +527,7 @@ class ETradeClient:
 
         return response
 
-    def _build_order_payload(self, order_data, preview=True, client_order_id=None):
+    def _build_order_payload(self, order_data, preview=True, client_order_id=None, preview_id=None):
         """
         Build XML payload for order
 
@@ -537,6 +535,7 @@ class ETradeClient:
             order_data: Order details
             preview: Whether this is a preview request
             client_order_id: Optional client order ID (must match between preview and place)
+            preview_id: Preview ID from preview response (required for place order)
 
         Returns:
             XML string payload
@@ -559,9 +558,12 @@ class ETradeClient:
 
         request_type = 'PreviewOrderRequest' if preview else 'PlaceOrderRequest'
 
+        # Build previewId element for place order
+        preview_id_element = f'<previewId>{preview_id}</previewId>\n    ' if preview_id else ''
+
         payload = f"""<?xml version="1.0" encoding="UTF-8"?>
 <{request_type}>
-    <orderType>EQ</orderType>
+    {preview_id_element}<orderType>EQ</orderType>
     <clientOrderId>{client_order_id}</clientOrderId>
     <Order>
         <allOrNone>false</allOrNone>
