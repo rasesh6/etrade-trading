@@ -120,16 +120,25 @@ class ETradeClient:
         self.access_token = access_token
         self.access_token_secret = access_token_secret
 
-        # Create OAuth1Session with stored tokens using compatible parameters
-        # Note: rauth OAuth1Session has issues with signature_type in newer requests-oauthlib
-        # We use the session constructor directly with only supported parameters
-        self.session = OAuth1Session(
-            self.consumer_key,
-            self.consumer_secret,
-            access_token=access_token,
-            access_token_secret=access_token_secret
-        )
-        logger.info(f"OAuth session created from stored tokens, base_url: {self.base_url}")
+        # Rebuild the OAuth session using the service's get_session method
+        # This ensures all OAuth parameters are properly configured
+        try:
+            # Use OAuth1Service to create a properly configured session
+            self.session = self.oauth_service.get_session(
+                access_token,
+                access_token_secret
+            )
+            logger.info(f"OAuth session created from stored tokens via OAuth1Service, base_url: {self.base_url}")
+        except Exception as e:
+            logger.warning(f"OAuth1Service.get_session failed: {e}, falling back to direct OAuth1Session")
+            # Fallback: create OAuth1Session directly with minimal parameters
+            self.session = OAuth1Session(
+                self.consumer_key,
+                self.consumer_secret,
+                access_token=access_token,
+                access_token_secret=access_token_secret
+            )
+            logger.info(f"OAuth session created from stored tokens via OAuth1Session fallback")
 
     def _make_request(self, method, endpoint, params=None, data=None, headers=None):
         """
@@ -156,6 +165,7 @@ class ETradeClient:
 
         try:
             logger.info(f"Making {method} request to {url}")
+            logger.info(f"OAuth session type: {type(self.session).__name__}")
 
             if method == 'GET':
                 response = self.session.get(url, params=params, headers=default_headers)
@@ -172,6 +182,9 @@ class ETradeClient:
 
             logger.info(f"Response Status: {response.status_code}")
 
+            # Log response body for debugging
+            logger.info(f"Response text (first 500 chars): {response.text[:500] if response.text else 'Empty'}")
+
             if response.status_code == 204:
                 return {'status': 'success', 'data': None}
 
@@ -179,13 +192,20 @@ class ETradeClient:
                 error_msg = "Unknown error"
                 try:
                     error_data = response.json()
-                    if error_data and 'Error' in error_data:
+                    if error_data is not None and 'Error' in error_data:
                         error_msg = error_data['Error'].get('message', str(error_data))
-                except:
+                    elif error_data is not None:
+                        error_msg = str(error_data)
+                except Exception as json_err:
                     error_msg = response.text[:200] if response.text else "No error message"
                 raise Exception(f"API Error ({response.status_code}): {error_msg}")
 
-            return response.json()
+            result = response.json()
+            if result is None:
+                logger.warning("response.json() returned None")
+                return {}
+
+            return result
 
         except Exception as e:
             logger.error(f"API request failed: {e}")
