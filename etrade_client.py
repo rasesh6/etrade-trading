@@ -449,12 +449,21 @@ class ETradeClient:
             logger.info(f"FULL PreviewIds field: {preview_ids_raw}")
             logger.info(f"PreviewIds type: {type(preview_ids_raw)}")
 
-            # Extract preview_id - handle both list and dict structures
+            # Extract preview_id - PreviewIds array contains equity + CASH items
+            # Filter for equity item, skip CASH item
             preview_id = None
             if preview_ids_raw:
-                if isinstance(preview_ids_raw, list) and len(preview_ids_raw) > 0:
-                    preview_id = preview_ids_raw[0].get('previewId')
-                    logger.info(f"Extracted preview_id from list: {preview_id}")
+                if isinstance(preview_ids_raw, list):
+                    # Filter to find equity previewId, skip CASH
+                    for item in preview_ids_raw:
+                        symbol = item.get('symbol', '')
+                        if symbol != 'CASH' and 'previewId' in item:
+                            preview_id = item.get('previewId')
+                            logger.info(f"Extracted equity preview_id from list: {preview_id} (symbol: {symbol})")
+                            break
+                    if not preview_id and len(preview_ids_raw) > 0:
+                        preview_id = preview_ids_raw[0].get('previewId')
+                        logger.info(f"Fallback: Using first preview_id from list: {preview_id}")
                 elif isinstance(preview_ids_raw, dict):
                     preview_id = preview_ids_raw.get('previewId')
                     logger.info(f"Extracted preview_id from dict: {preview_id}")
@@ -558,8 +567,18 @@ class ETradeClient:
 
         request_type = 'PreviewOrderRequest' if preview else 'PlaceOrderRequest'
 
-        # Build previewId element for place order
-        preview_id_element = f'<previewId>{preview_id}</previewId>\n    ' if preview_id else ''
+        # Build PreviewIds element for place order with correct nested structure
+        # E*TRADE requires: <PreviewIds><previewId><cashMargin>Cash</cashMargin><previewIdValue>...</previewIdValue></previewId></PreviewIds>
+        if preview_id:
+            preview_id_element = f'''<PreviewIds>
+        <previewId>
+            <cashMargin>Cash</cashMargin>
+            <previewIdValue>{preview_id}</previewIdValue>
+        </previewId>
+    </PreviewIds>
+    '''
+        else:
+            preview_id_element = ''
 
         # Build price elements conditionally - only include when needed
         # E*TRADE rejects empty elements like <stopPrice></stopPrice>
