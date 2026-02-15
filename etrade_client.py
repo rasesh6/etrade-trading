@@ -449,29 +449,12 @@ class ETradeClient:
             logger.info(f"FULL PreviewIds field: {preview_ids_raw}")
             logger.info(f"PreviewIds type: {type(preview_ids_raw)}")
 
-            # Extract preview_id - filter for equity (not CASH)
-            # PreviewIds is an array containing items for equity and CASH settlement
-            # We need to find the equity previewId, not CASH
+            # Extract preview_id - handle both list and dict structures
             preview_id = None
             if preview_ids_raw:
-                if isinstance(preview_ids_raw, list):
-                    logger.info(f"PreviewIds array has {len(preview_ids_raw)} items")
-                    for i, item in enumerate(preview_ids_raw):
-                        logger.info(f"  Item {i}: {item}")
-                        # Filter: find item that has symbol or type='EQ', skip CASH items
-                        if isinstance(item, dict):
-                            symbol = item.get('symbol', '')
-                            item_type = item.get('type', '')
-                            # Skip CASH items - look for equity
-                            if symbol != 'CASH' and item_type != 'CASH':
-                                if 'previewId' in item:
-                                    preview_id = item.get('previewId')
-                                    logger.info(f"  Found equity preview_id: {preview_id} for symbol: {symbol}")
-                                    break
-                    # Fallback to first item if no equity found
-                    if not preview_id and len(preview_ids_raw) > 0:
-                        preview_id = preview_ids_raw[0].get('previewId')
-                        logger.warning(f"Fallback: Using first preview_id: {preview_id}")
+                if isinstance(preview_ids_raw, list) and len(preview_ids_raw) > 0:
+                    preview_id = preview_ids_raw[0].get('previewId')
+                    logger.info(f"Extracted preview_id from list: {preview_id}")
                 elif isinstance(preview_ids_raw, dict):
                     preview_id = preview_ids_raw.get('previewId')
                     logger.info(f"Extracted preview_id from dict: {preview_id}")
