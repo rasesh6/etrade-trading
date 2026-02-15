@@ -420,10 +420,13 @@ class ETradeClient:
             order_data: Order details dict
 
         Returns:
-            dict with preview results including previewId
+            dict with preview results including previewId and clientOrderId
         """
-        # Build XML payload
-        payload = self._build_order_payload(order_data, preview=True)
+        # Generate clientOrderId and store it for place_order
+        client_order_id = str(random.randint(1000000000, 9999999999))
+
+        # Build XML payload with specific clientOrderId
+        payload = self._build_order_payload(order_data, preview=True, client_order_id=client_order_id)
 
         headers = {
             'Content-Type': 'application/xml',
@@ -440,6 +443,7 @@ class ETradeClient:
         if 'PreviewOrderResponse' in response:
             return {
                 'preview_id': response['PreviewOrderResponse'].get('PreviewIds', [{}])[0].get('previewId'),
+                'client_order_id': client_order_id,  # Return for place_order
                 'order': response['PreviewOrderResponse'].get('Order', [{}])[0] if 'Order' in response['PreviewOrderResponse'] else {},
                 'estimated_commission': response['PreviewOrderResponse'].get('Order', [{}])[0].get('estimatedCommission', 0),
                 'estimated_total': response['PreviewOrderResponse'].get('Order', [{}])[0].get('estimatedTotalAmount', 0),
@@ -448,24 +452,29 @@ class ETradeClient:
 
         return response
 
-    def place_order(self, account_id_key, order_data, preview_id=None):
+    def place_order(self, account_id_key, order_data, preview_id=None, client_order_id=None):
         """
         Place an order
 
         Args:
             account_id_key: Account ID key
             order_data: Order details dict
-            preview_id: Optional preview ID (if already previewed)
+            preview_id: Preview ID from preview_order (required for placing)
+            client_order_id: Client order ID from preview_order (must match preview)
 
         Returns:
             dict with order results
         """
-        # Build XML payload
-        payload = self._build_order_payload(order_data, preview=preview_id is not None)
+        # Generate or use provided clientOrderId
+        if not client_order_id:
+            client_order_id = str(random.randint(1000000000, 9999999999))
+
+        # Build XML payload with same clientOrderId as preview
+        payload = self._build_order_payload(order_data, preview=False, client_order_id=client_order_id)
+
+        # Add preview ID to payload for place order
         if preview_id:
-            # Add preview ID to payload
-            payload = payload.replace('<PreviewOrderRequest>', f'<PlaceOrderRequest><previewId>{preview_id}</previewId>')
-            payload = payload.replace('</PreviewOrderRequest>', '</PlaceOrderRequest>')
+            payload = payload.replace('<PlaceOrderRequest>', f'<PlaceOrderRequest><previewId>{preview_id}</previewId>')
 
         headers = {
             'Content-Type': 'application/xml',
@@ -490,18 +499,21 @@ class ETradeClient:
 
         return response
 
-    def _build_order_payload(self, order_data, preview=True):
+    def _build_order_payload(self, order_data, preview=True, client_order_id=None):
         """
         Build XML payload for order
 
         Args:
             order_data: Order details
             preview: Whether this is a preview request
+            client_order_id: Optional client order ID (must match between preview and place)
 
         Returns:
             XML string payload
         """
-        client_order_id = str(random.randint(1000000000, 9999999999))
+        # Generate clientOrderId if not provided
+        if not client_order_id:
+            client_order_id = str(random.randint(1000000000, 9999999999))
 
         # Determine price type and limit price
         price_type = order_data.get('priceType', 'MARKET')

@@ -413,6 +413,7 @@ def place_order():
         # Preview first (required by E*TRADE)
         preview_result = client.preview_order(account_id_key, order_data)
         preview_id = preview_result.get('preview_id')
+        client_order_id = preview_result.get('client_order_id')
 
         if not preview_id:
             return jsonify({
@@ -420,8 +421,8 @@ def place_order():
                 'error': 'Preview failed - no preview ID returned'
             }), 500
 
-        # Place order
-        result = client.place_order(account_id_key, order_data, preview_id)
+        # Place order with same clientOrderId as preview (required by E*TRADE)
+        result = client.place_order(account_id_key, order_data, preview_id, client_order_id)
 
         return jsonify({
             'success': True,
