@@ -551,9 +551,9 @@ def debug_test():
             'base_url': client.base_url
         }
 
-        # Try raw request
+        # Try raw request (using OAuth1 auth)
         try:
-            response = client.session.get(url, headers={'consumerKey': client.consumer_key}, header_auth=True)
+            response = client.session.get(url, headers={'consumerkey': client.consumer_key}, auth=client._oauth)
             raw_response = {
                 'status_code': response.status_code,
                 'text': response.text[:500] if response.text else None

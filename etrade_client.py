@@ -219,7 +219,8 @@ class ETradeClient:
 
         url = f"{self.base_url}{endpoint}"
 
-        default_headers = {'consumerKey': self.consumer_key}
+        # Note: E*TRADE official example uses lowercase 'consumerkey'
+        default_headers = {'consumerkey': self.consumer_key}
         if headers:
             default_headers.update(headers)
 
@@ -426,7 +427,7 @@ class ETradeClient:
 
         headers = {
             'Content-Type': 'application/xml',
-            'consumerKey': self.consumer_key
+            'consumerkey': self.consumer_key
         }
 
         response = self._make_request(
@@ -468,7 +469,7 @@ class ETradeClient:
 
         headers = {
             'Content-Type': 'application/xml',
-            'consumerKey': self.consumer_key
+            'consumerkey': self.consumer_key
         }
 
         endpoint = f'/v1/accounts/{account_id_key}/orders/place.json'
@@ -584,7 +585,7 @@ class ETradeClient:
 
         headers = {
             'Content-Type': 'application/xml',
-            'consumerKey': self.consumer_key
+            'consumerkey': self.consumer_key
         }
 
         response = self._make_request(
