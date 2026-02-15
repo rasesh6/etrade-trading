@@ -561,6 +561,11 @@ class ETradeClient:
         # Build previewId element for place order
         preview_id_element = f'<previewId>{preview_id}</previewId>\n    ' if preview_id else ''
 
+        # Build price elements conditionally - only include when needed
+        # E*TRADE rejects empty elements like <stopPrice></stopPrice>
+        limit_price_element = f'<limitPrice>{limit_price}</limitPrice>\n        ' if price_type == 'LIMIT' and limit_price else ''
+        stop_price_element = ''  # Stop orders not currently supported, omit entirely
+
         payload = f"""<?xml version="1.0" encoding="UTF-8"?>
 <{request_type}>
     {preview_id_element}<orderType>EQ</orderType>
@@ -570,9 +575,7 @@ class ETradeClient:
         <priceType>{price_type}</priceType>
         <orderTerm>{order_term}</orderTerm>
         <marketSession>REGULAR</marketSession>
-        <stopPrice></stopPrice>
-        <limitPrice>{limit_price}</limitPrice>
-        <Instrument>
+        {stop_price_element}{limit_price_element}<Instrument>
             <Product>
                 <securityType>EQ</securityType>
                 <symbol>{order_data.get('symbol', '').upper()}</symbol>
