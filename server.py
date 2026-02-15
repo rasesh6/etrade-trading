@@ -421,6 +421,12 @@ def place_order():
                 'error': 'Preview failed - no preview ID returned'
             }), 500
 
+        # Wait for E*TRADE to register the preview before placing
+        # Error 101 occurs if place is called too quickly after preview
+        import time
+        logger.info(f"Waiting 2 seconds for E*TRADE to register preview {preview_id}...")
+        time.sleep(2)
+
         # Place order with same clientOrderId as preview (required by E*TRADE)
         result = client.place_order(account_id_key, order_data, preview_id, client_order_id)
 
