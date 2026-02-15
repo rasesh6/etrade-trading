@@ -1,6 +1,7 @@
 flask==3.0.0
 rauth==0.7.3
 requests==2.31.0
+requests-oauthlib<2.0.0
 redis==5.0.1
 python-dotenv==1.0.0
 gunicorn==21.2.0

@@ -120,13 +120,14 @@ class ETradeClient:
         self.access_token = access_token
         self.access_token_secret = access_token_secret
 
-        # Create OAuth1Session with proper signing
+        # Create OAuth1Session with stored tokens using compatible parameters
+        # Note: rauth OAuth1Session has issues with signature_type in newer requests-oauthlib
+        # We use the session constructor directly with only supported parameters
         self.session = OAuth1Session(
-            consumer_key=self.consumer_key,
-            consumer_secret=self.consumer_secret,
+            self.consumer_key,
+            self.consumer_secret,
             access_token=access_token,
-            access_token_secret=access_token_secret,
-            signature_type='auth_header'  # Put OAuth in Authorization header
+            access_token_secret=access_token_secret
         )
         logger.info(f"OAuth session created from stored tokens, base_url: {self.base_url}")
 
