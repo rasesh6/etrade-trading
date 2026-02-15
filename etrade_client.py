@@ -441,8 +441,25 @@ class ETradeClient:
         )
 
         if 'PreviewOrderResponse' in response:
+            # DEBUG: Log the full PreviewIds structure
+            preview_ids_raw = response['PreviewOrderResponse'].get('PreviewIds')
+            logger.info(f"FULL PreviewIds field: {preview_ids_raw}")
+            logger.info(f"PreviewIds type: {type(preview_ids_raw)}")
+
+            # Extract preview_id - handle both list and dict structures
+            preview_id = None
+            if preview_ids_raw:
+                if isinstance(preview_ids_raw, list) and len(preview_ids_raw) > 0:
+                    preview_id = preview_ids_raw[0].get('previewId')
+                    logger.info(f"Extracted preview_id from list: {preview_id}")
+                elif isinstance(preview_ids_raw, dict):
+                    preview_id = preview_ids_raw.get('previewId')
+                    logger.info(f"Extracted preview_id from dict: {preview_id}")
+
+            logger.info(f"FINAL preview_id: {preview_id}, client_order_id: {client_order_id}")
+
             return {
-                'preview_id': response['PreviewOrderResponse'].get('PreviewIds', [{}])[0].get('previewId'),
+                'preview_id': preview_id,
                 'client_order_id': client_order_id,  # Return for place_order
                 'order': response['PreviewOrderResponse'].get('Order', [{}])[0] if 'Order' in response['PreviewOrderResponse'] else {},
                 'estimated_commission': response['PreviewOrderResponse'].get('Order', [{}])[0].get('estimatedCommission', 0),
@@ -465,9 +482,13 @@ class ETradeClient:
         Returns:
             dict with order results
         """
+        # DEBUG: Log incoming values
+        logger.info(f"place_order called with preview_id={preview_id}, client_order_id={client_order_id}")
+
         # Generate or use provided clientOrderId
         if not client_order_id:
             client_order_id = str(random.randint(1000000000, 9999999999))
+            logger.warning(f"No client_order_id provided, generated new one: {client_order_id}")
 
         # Build XML payload with same clientOrderId as preview
         payload = self._build_order_payload(order_data, preview=False, client_order_id=client_order_id)
@@ -475,6 +496,9 @@ class ETradeClient:
         # Add preview ID to payload for place order
         if preview_id:
             payload = payload.replace('<PlaceOrderRequest>', f'<PlaceOrderRequest><previewId>{preview_id}</previewId>')
+            logger.info(f"Added previewId to payload: {preview_id}")
+        else:
+            logger.error("NO PREVIEW_ID - E*TRADE will reject this order!")
 
         headers = {
             'Content-Type': 'application/xml',
