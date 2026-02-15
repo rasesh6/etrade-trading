@@ -428,6 +428,9 @@ class ETradeClient:
         # Build XML payload with specific clientOrderId
         payload = self._build_order_payload(order_data, preview=True, client_order_id=client_order_id)
 
+        # DEBUG: Log the preview payload
+        logger.info(f"FULL PREVIEW ORDER PAYLOAD:\n{payload}")
+
         headers = {
             'Content-Type': 'application/xml',
             'consumerkey': self.consumer_key
@@ -499,6 +502,9 @@ class ETradeClient:
             logger.info(f"Added previewId to payload: {preview_id}")
         else:
             logger.error("NO PREVIEW_ID - E*TRADE will reject this order!")
+
+        # DEBUG: Log the full XML payload
+        logger.info(f"FULL PLACE ORDER PAYLOAD:\n{payload}")
 
         headers = {
             'Content-Type': 'application/xml',
