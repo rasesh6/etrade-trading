@@ -11,6 +11,7 @@ Wraps all E*TRADE API functionality:
 import json
 import random
 import logging
+from urllib.parse import unquote
 from requests import Session
 from requests_oauthlib import OAuth1
 from config import (
@@ -45,13 +46,17 @@ class ETradeClient:
         """
         try:
             # Create OAuth1 for request token
-            # E*TRADE requires HMAC-SHA1 signature method (default)
+            # E*TRADE requires:
+            # - HMAC-SHA1 signature method
+            # - realm="" in Authorization header
+            # - oauth_callback="oob"
             oauth = OAuth1(
                 self.consumer_key,
                 client_secret=self.consumer_secret,
                 callback_uri='oob',
                 signature_method='HMAC-SHA1',
-                signature_type='auth_header'
+                signature_type='auth_header',
+                realm=''
             )
 
             # Request token - E*TRADE uses GET for request_token
@@ -92,14 +97,15 @@ class ETradeClient:
             raise Exception(f"Authorization URL generation failed: {str(e)}")
 
     def _parse_oauth_response(self, response_text):
-        """Parse URL-encoded OAuth response"""
+        """Parse URL-encoded OAuth response and decode values"""
         params = {}
         if not response_text:
             return params
         for pair in response_text.split('&'):
             if '=' in pair:
                 key, value = pair.split('=', 1)
-                params[key] = value
+                # URL-decode the value (E*TRADE returns URL-encoded tokens)
+                params[key] = unquote(value)
         return params
 
     def complete_authentication(self, verifier_code, request_token, request_token_secret):
@@ -118,6 +124,10 @@ class ETradeClient:
             logger.info(f"Completing authentication with verifier: {verifier_code}")
 
             # Create OAuth1 for access token
+            # E*TRADE requires:
+            # - HMAC-SHA1 signature method
+            # - realm="" in Authorization header
+            # - oauth_token and oauth_verifier
             oauth = OAuth1(
                 self.consumer_key,
                 client_secret=self.consumer_secret,
@@ -125,7 +135,8 @@ class ETradeClient:
                 resource_owner_secret=request_token_secret,
                 verifier=verifier_code,
                 signature_method='HMAC-SHA1',
-                signature_type='auth_header'
+                signature_type='auth_header',
+                realm=''
             )
 
             # Get access token - E*TRADE uses GET for access_token
@@ -169,7 +180,10 @@ class ETradeClient:
             self.consumer_key,
             client_secret=self.consumer_secret,
             resource_owner_key=self.access_token,
-            resource_owner_secret=self.access_token_secret
+            resource_owner_secret=self.access_token_secret,
+            signature_method='HMAC-SHA1',
+            signature_type='auth_header',
+            realm=''
         )
         logger.info("OAuth1 configured for authenticated requests")
 
@@ -224,50 +238,6 @@ class ETradeClient:
                 response = self.session.post(url, data=data, **request_args)
             elif method == 'PUT':
                 response = self.session.put(url, data=data, **request_args)
-            else:
-                raise Exception(f"Unsupported method: {method}")
-
-            # Check if response is valid
-            if response is None:
-                raise Exception("API returned None response")
-
-            logger.info(f"Response Status: {response.status_code}")
-
-            # Log response body for debugging
-            logger.info(f"Response text (first 500 chars): {response.text[:500] if response.text else 'Empty'}")
-
-            if response.status_code == 204:
-                return {'status': 'success', 'data': None}
-
-            if response.status_code not in [200, 201]:
-                error_msg = "Unknown error"
-                try:
-                    error_data = response.json()
-                    if error_data is not None and 'Error' in error_data:
-                        error_msg = error_data['Error'].get('message', str(error_data))
-                    elif error_data is not None:
-                        error_msg = str(error_data)
-                except Exception as json_err:
-                    error_msg = response.text[:200] if response.text else "No error message"
-                raise Exception(f"API Error ({response.status_code}): {error_msg}")
-
-            result = response.json()
-            if result is None:
-                logger.warning("response.json() returned None")
-                return {}
-
-            return result
-
-        except Exception as e:
-            logger.error(f"API request failed: {e}")
-            raise
-
-            if method == 'GET':
-                response = self.session.get(url, params=params, headers=default_headers)
-            elif method == 'POST':
-                response = self.session.post(url, params=params, data=data, headers=default_headers)
-            elif method == 'PUT':
-                response = self.session.put(url, params=params, data=data, headers=default_headers)
             else:
                 raise Exception(f"Unsupported method: {method}")
 
