@@ -410,25 +410,10 @@ def place_order():
             'limitPrice': str(limit_price) if limit_price else ''
         }
 
-        # Preview first (required by E*TRADE)
-        preview_result = client.preview_order(account_id_key, order_data)
-        preview_id = preview_result.get('preview_id')
-        client_order_id = preview_result.get('client_order_id')
-
-        if not preview_id:
-            return jsonify({
-                'success': False,
-                'error': 'Preview failed - no preview ID returned'
-            }), 500
-
-        # Wait for E*TRADE to register the preview before placing
-        # Error 101 occurs if place is called too quickly after preview
-        import time
-        logger.info(f"Waiting 2 seconds for E*TRADE to register preview {preview_id}...")
-        time.sleep(2)
-
-        # Place order with same clientOrderId as preview (required by E*TRADE)
-        result = client.place_order(account_id_key, order_data, preview_id, client_order_id)
+        # Place order DIRECTLY without preview (previewId is optional per E*TRADE API docs)
+        # This avoids error 101 timeout issues when preview+place is used
+        logger.info(f"Placing order directly without preview: {symbol} {side} {quantity} @ {price_type}")
+        result = client.place_order(account_id_key, order_data)
 
         return jsonify({
             'success': True,
@@ -439,8 +424,6 @@ def place_order():
                 'side': side,
                 'price_type': price_type,
                 'limit_price': limit_price,
-                'estimated_commission': preview_result.get('estimated_commission'),
-                'estimated_total': preview_result.get('estimated_total'),
                 'message': result.get('message', 'Order placed successfully')
             }
         })
