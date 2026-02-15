@@ -45,26 +45,29 @@ class ETradeClient:
         """
         try:
             # Create OAuth1 for request token
+            # E*TRADE requires HMAC-SHA1 signature method (default)
             oauth = OAuth1(
                 self.consumer_key,
                 client_secret=self.consumer_secret,
-                callback_uri='oob'
+                callback_uri='oob',
+                signature_method='HMAC-SHA1',
+                signature_type='auth_header'
             )
 
-            # Request token
-            response = self.session.post(
+            # Request token - E*TRADE uses GET for request_token
+            response = self.session.get(
                 REQUEST_TOKEN_URL,
-                auth=oauth,
-                headers={'Accept': 'application/json'}
+                auth=oauth
             )
 
             logger.info(f"Request token response status: {response.status_code}")
+            logger.info(f"Request token response: {response.text[:500] if response.text else 'Empty'}")
 
             if response.status_code != 200:
-                raise Exception(f"Request token failed: {response.text}")
+                raise Exception(f"Request token failed ({response.status_code}): {response.text}")
 
-            # Parse response
-            token_data = response.json() if response.text.startswith('{') else self._parse_oauth_response(response.text)
+            # Parse response - E*TRADE returns URL-encoded format
+            token_data = self._parse_oauth_response(response.text)
             request_token = token_data.get('oauth_token')
             request_token_secret = token_data.get('oauth_token_secret')
 
@@ -76,7 +79,7 @@ class ETradeClient:
                 request_token
             )
 
-            logger.info("Generated authorization URL")
+            logger.info(f"Generated authorization URL for token: {request_token[:20]}...")
 
             return {
                 'authorize_url': authorize_url,
@@ -91,6 +94,8 @@ class ETradeClient:
     def _parse_oauth_response(self, response_text):
         """Parse URL-encoded OAuth response"""
         params = {}
+        if not response_text:
+            return params
         for pair in response_text.split('&'):
             if '=' in pair:
                 key, value = pair.split('=', 1)
@@ -110,29 +115,33 @@ class ETradeClient:
             dict with access_token and access_token_secret
         """
         try:
+            logger.info(f"Completing authentication with verifier: {verifier_code}")
+
             # Create OAuth1 for access token
             oauth = OAuth1(
                 self.consumer_key,
                 client_secret=self.consumer_secret,
                 resource_owner_key=request_token,
                 resource_owner_secret=request_token_secret,
-                verifier=verifier_code
+                verifier=verifier_code,
+                signature_method='HMAC-SHA1',
+                signature_type='auth_header'
             )
 
-            # Get access token
-            response = self.session.post(
+            # Get access token - E*TRADE uses GET for access_token
+            response = self.session.get(
                 ACCESS_TOKEN_URL,
-                auth=oauth,
-                headers={'Accept': 'application/json'}
+                auth=oauth
             )
 
             logger.info(f"Access token response status: {response.status_code}")
+            logger.info(f"Access token response: {response.text[:500] if response.text else 'Empty'}")
 
             if response.status_code != 200:
-                raise Exception(f"Access token failed: {response.text}")
+                raise Exception(f"Access token failed ({response.status_code}): {response.text}")
 
-            # Parse response
-            token_data = response.json() if response.text.startswith('{') else self._parse_oauth_response(response.text)
+            # Parse response - E*TRADE returns URL-encoded format
+            token_data = self._parse_oauth_response(response.text)
             self.access_token = token_data.get('oauth_token')
             self.access_token_secret = token_data.get('oauth_token_secret')
 

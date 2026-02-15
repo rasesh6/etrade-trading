@@ -22,12 +22,12 @@ PROD_SECRET = os.environ.get('ETRADE_PROD_SECRET', '6bef9b896a9d6d4c42807eb5d223
 SANDBOX_BASE_URL = 'https://apisb.etrade.com'
 PROD_BASE_URL = 'https://api.etrade.com'
 
-# OAuth URLs
+# OAuth URLs - same for both sandbox and production
 REQUEST_TOKEN_URL = 'https://api.etrade.com/oauth/request_token'
 ACCESS_TOKEN_URL = 'https://api.etrade.com/oauth/access_token'
 AUTHORIZE_URL = 'https://us.etrade.com/e/t/etws/authorize?key={}&token={}'
 
-# Environment mode
+# Environment mode - default to sandbox for safety
 USE_SANDBOX = os.environ.get('ETRADE_USE_SANDBOX', 'true').lower() == 'true'
 
 # Redis configuration (for token storage)
@@ -47,3 +47,7 @@ def get_credentials():
     if USE_SANDBOX:
         return SANDBOX_KEY, SANDBOX_SECRET
     return PROD_KEY, PROD_SECRET
+
+def get_environment_name():
+    """Get human-readable environment name"""
+    return 'SANDBOX' if USE_SANDBOX else 'PRODUCTION'
