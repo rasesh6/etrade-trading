@@ -517,9 +517,9 @@ class ETradeClient:
         logger.info(f"FULL PLACE ORDER PAYLOAD:\n{payload}")
         logger.info("=" * 60)
 
-        # Add small delay to let E*TRADE register the preview
+        # Add delay to let E*TRADE register the preview
         import time
-        time.sleep(0.5)  # 500ms delay
+        time.sleep(1.0)  # 1 second delay
 
         headers = {
             'Content-Type': 'application/xml',
@@ -576,17 +576,11 @@ class ETradeClient:
         request_type = 'PreviewOrderRequest' if preview else 'PlaceOrderRequest'
 
         # Build PreviewIds element for place order
-        # E*TRADE requires the PreviewIds wrapper structure to match the preview response
+        # Try simple format first
         if preview_id:
-            # Use the proper PreviewIds structure that E*TRADE expects
-            # This matches the format returned in the preview response
-            preview_id_element = f'''<PreviewIds>
-        <PreviewId>
-            <previewId>{preview_id}</previewId>
-        </PreviewId>
-    </PreviewIds>
-    '''
-            logger.info(f"DEBUG: Using PreviewIds wrapper for preview_id={preview_id}")
+            # Simple format - just previewId element
+            preview_id_element = f'<previewId>{preview_id}</previewId>\n    '
+            logger.info(f"DEBUG: Using simple previewId format for preview_id={preview_id}")
         else:
             preview_id_element = ''
 
