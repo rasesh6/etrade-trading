@@ -568,11 +568,16 @@ class ETradeClient:
         request_type = 'PreviewOrderRequest' if preview else 'PlaceOrderRequest'
 
         # Build PreviewIds element for place order
-        # Try simpler format first: just <previewId>value</previewId>
-        # If that fails with Error 900, use nested structure with cashMargin
+        # E*TRADE requires the PreviewIds wrapper structure to match the preview response
         if preview_id:
-            # Simpler format that works with some E*TRADE implementations
-            preview_id_element = f'<previewId>{preview_id}</previewId>\n    '
+            # Use the proper PreviewIds structure that E*TRADE expects
+            # This matches the format returned in the preview response
+            preview_id_element = f'''<PreviewIds>
+        <PreviewId>
+            <previewId>{preview_id}</previewId>
+        </PreviewId>
+    </PreviewIds>
+    '''
         else:
             preview_id_element = ''
 
