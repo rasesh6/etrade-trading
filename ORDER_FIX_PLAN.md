@@ -1,62 +1,13 @@
 # E*TRADE Order Placement Fix Plan
 
 > **Date:** 2026-02-15
-> **Last Updated:** 2026-02-17 18:00 UTC
-> **Status:** 🔧 IN PROGRESS - Order issue paused, implementing callback URL first
+> **Last Updated:** 2026-02-17 17:10 UTC
+> **Status:** 🔧 IN PROGRESS - Fix 3 needed
 > **Priority:** HIGH - Core functionality broken
 
 ---
 
-## Baseline Versions
-
-- **v1.0.0-callback-baseline**: Manual verification code OAuth flow (working)
-  - Created: 2026-02-17
-  - This is the fallback if callback URL implementation has issues
-
----
-
-## Callback URL Implementation (2026-02-17)
-
-### Status: ✅ IMPLEMENTED, awaiting testing
-
-### Changes Made:
-1. **etrade_client.py**:
-   - Added `callback_url` parameter to `get_authorization_url()`
-   - Now supports both `'oob'` (manual) and callback URL modes
-
-2. **server.py**:
-   - Added `CALLBACK_URL` constant: `https://web-production-9f73cd.up.railway.app/api/auth/callback`
-   - Added new `/api/auth/callback` endpoint to handle E*TRADE redirect
-   - Stores request tokens keyed by request token (not flow_id)
-   - Handles success/error redirects
-
-3. **templates/index.html**:
-   - Updated auth section to remove manual verification code input
-   - Simplified flow for callback-based authentication
-
-4. **static/js/app.js**:
-   - Added `handleCallbackParams()` to process `auth_success` and `auth_error` URL params
-   - Updated `startLogin()` to open auth in new window and poll for status
-   - Added `pollAuthStatus()` to auto-detect successful authentication
-
-### New OAuth Flow:
-1. User clicks "Connect to E*TRADE"
-2. Server generates auth URL with callback URL
-3. User authorizes on E*TRADE
-4. E*TRADE redirects to callback URL with `oauth_token` and `oauth_verifier`
-5. Server exchanges tokens automatically
-6. Server redirects to `/?auth_success=true`
-7. Frontend polls auth status and updates UI
-
-### Rollback if Needed:
-```bash
-git checkout v1.0.0-callback-baseline
-# Revert to manual verification code flow
-```
-
----
-
-## Problem Summary (Order Placement)
+## Problem Summary
 
 The order placement feature is NOT working because **E*TRADE requires a preview-then-place flow**, but the current implementation has issues with Error 101.
 
@@ -119,69 +70,20 @@ The order placement feature is NOT working because **E*TRADE requires a preview-
 
 ## Next Steps (Fix 3)
 
-### Fix 3 (2026-02-17): Deployment Marker + Delay ✅ DEPLOYED, ❌ Still Error 101
-- **Problem:** Fix 2 may not have been deployed to Railway
-- **Solution:**
-  1. Added deployment marker `DEPLOYMENT MARKER: FIX3-2026-02-17-1712` to confirm code is deployed
-  2. Added 500ms delay between preview and place
-  3. Added DEBUG logging for PreviewIds wrapper usage
-- **Result:**
-  - ✅ Deployment marker confirmed in Railway logs
-  - ✅ XML now shows correct `<PreviewIds>` wrapper structure
-  - ❌ Still getting Error 101 from E*TRADE
-- **Key Finding:** PreviewIds wrapper format IS correct, but Error 101 persists
-- **Evidence from Railway (2026-02-17 17:19 UTC):**
-  ```
-  DEPLOYMENT MARKER: FIX3-2026-02-17-1712
-  DEBUG: Using PreviewIds wrapper for preview_id=168359279200
+### Option A: Force Railway Rebuild
+Railway may have cached the old Docker image. Need to:
+1. Make a trivial code change to force rebuild
+2. Or clear Railway build cache
+3. Or redeploy manually
 
-  FULL PLACE ORDER PAYLOAD:
-  <PlaceOrderRequest>
-      <PreviewIds>
-          <PreviewId>
-              <previewId>168359279200</previewId>
-          </PreviewId>
-      </PreviewIds>
-      <orderType>EQ</orderType>
-      <clientOrderId>2830665722</clientOrderId>
-      ...
-  </PlaceOrderRequest>
+### Option B: Alternative XML Format
+If wrapper change was deployed and still fails, try:
+1. Add delay between preview and place
+2. Use `<PreviewIds symbol="SOXL">` format
+3. Check pyetrade source for working XML format
 
-  (Error 101 still returned - need to see full response)
-  ```
-
----
-
-## Next Steps (Fix 4)
-
-Since the PreviewIds wrapper is correct but Error 101 persists, investigate:
-
-### Option A: Research pyetrade Implementation
-Check the pyetrade library source for how they handle place order:
-1. Look at their XML format for PreviewIds
-2. Check if they use any additional headers or parameters
-3. Compare their approach with ours
-
-### Option B: Different PreviewIds Format
-The response shows: `[{'previewId': 168359279200}]` (symbol is empty)
-Try formats:
-1. `<PreviewIds><previewId>168359279200</previewId></PreviewIds>` (flat, no wrapper)
-2. `<previewId>168359279200</previewId>` (original simple format)
-
-### Option C: Check Order Parameter Matching
-Verify ALL parameters match between preview and place:
-1. Compare full XML payloads
-2. Check if any fields are missing or different
-
-### Option D: Try Without Delay
-The 500ms delay might be causing issues. Try:
-1. Remove the delay
-2. Place immediately after preview
-
-### Option E: Check E*TRADE Production Requirements
-Production API may have different requirements than sandbox:
-1. Check E*TRADE production docs
-2. Look for production-specific headers or parameters
+### Option C: Debug Output
+Add more detailed logging to confirm exact XML being sent
 
 ---
 
@@ -251,9 +153,7 @@ git push origin main --force
 2. [x] Test Fix 1 - Got Error 101
 3. [x] Implement Fix 2: Proper PreviewIds XML structure in `etrade_client.py`
 4. [x] Test Fix 2 - Still Error 101 (may not have deployed)
-5. [x] **Fix 3:** Force Railway rebuild + add deployment marker
-6. [x] Test Fix 3 - PreviewIds wrapper confirmed, still Error 101
-7. [ ] **Fix 4:** Research pyetrade or try alternative XML formats
-8. [ ] Test Fix 4 in production mode
-9. [ ] Update VERSION.md with new tag
-10. [ ] Mark as complete in documentation
+5. [ ] **Fix 3:** Force Railway rebuild OR try alternative approach
+6. [ ] Test Fix 3 in production mode
+7. [ ] Update VERSION.md with new tag
+8. [ ] Mark as complete in documentation

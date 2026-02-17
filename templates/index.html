@@ -21,15 +21,18 @@
         <div class="card auth-card" id="auth-section">
             <h2>Authentication</h2>
             <div id="auth-not-authenticated">
-                <p class="info-text">Click to connect to E*TRADE. You'll be redirected to E*TRADE to authorize the app, then automatically returned here.</p>
+                <p class="info-text">Click to start OAuth login flow. You'll authorize the app on E*TRADE's website and enter a verification code.</p>
                 <button class="btn btn-primary" onclick="startLogin()">Connect to E*TRADE</button>
             </div>
             <div id="auth-flow" style="display: none;">
                 <div class="auth-steps">
-                    <p><strong>Authorization in progress...</strong></p>
-                    <p>If you haven't been redirected, click the link below:</p>
-                    <a id="auth-url" href="#" class="auth-link">Open E*TRADE Authorization</a>
-                    <p class="small-text">After authorizing, you'll be redirected back automatically.</p>
+                    <p><strong>Step 1:</strong> Click the link below to authorize</p>
+                    <a id="auth-url" href="#" target="_blank" class="auth-link">Open E*TRADE Authorization</a>
+                    <p><strong>Step 2:</strong> Enter the verification code from the page</p>
+                    <div class="input-group">
+                        <input type="text" id="verifier-code" placeholder="Enter verification code">
+                        <button class="btn btn-success" onclick="verifyCode()">Verify</button>
+                    </div>
                 </div>
             </div>
             <div id="auth-authenticated" style="display: none;">

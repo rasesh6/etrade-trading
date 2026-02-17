@@ -14,7 +14,6 @@ document.addEventListener('DOMContentLoaded', () => {
     checkAuthStatus();
     setupEventListeners();
     updateOrderSummary();
-    handleCallbackParams();
 });
 
 function setupEventListeners() {
@@ -35,23 +34,6 @@ function setupEventListeners() {
         document.getElementById('order-symbol').value = this.value.toUpperCase();
         updateOrderSummary();
     });
-}
-
-function handleCallbackParams() {
-    // Check for callback result in URL params
-    const urlParams = new URLSearchParams(window.location.search);
-
-    if (urlParams.get('auth_success') === 'true') {
-        // Clear the URL param and show success
-        window.history.replaceState({}, document.title, '/');
-        // Auth status will be checked below
-    }
-
-    if (urlParams.get('auth_error')) {
-        const error = urlParams.get('auth_error');
-        window.history.replaceState({}, document.title, '/');
-        alert('Authentication failed: ' + error);
-    }
 }
 
 // ==================== AUTHENTICATION ====================
@@ -103,18 +85,11 @@ async function startLogin() {
         const data = await response.json();
 
         if (data.success) {
-            const authUrl = data.authorize_url;
+            document.getElementById('auth-url').href = data.authorize_url;
+            document.getElementById('flow-id').value = data.flow_id;
 
-            // Show the auth flow section with link
-            document.getElementById('auth-url').href = authUrl;
             document.getElementById('auth-not-authenticated').style.display = 'none';
             document.getElementById('auth-flow').style.display = 'block';
-
-            // Open E*TRADE authorization in a new window
-            const authWindow = window.open(authUrl, 'etrade-auth', 'width=800,height=600');
-
-            // Start polling for auth status
-            pollAuthStatus();
         } else {
             alert('Failed to start login: ' + data.error);
         }
@@ -126,37 +101,6 @@ async function startLogin() {
         console.error('Start login failed:', error);
         alert('Failed to start login: ' + error.message);
     }
-}
-
-function pollAuthStatus() {
-    // Poll every 2 seconds for up to 5 minutes
-    let attempts = 0;
-    const maxAttempts = 150; // 5 minutes at 2 second intervals
-
-    const poll = async () => {
-        attempts++;
-
-        try {
-            const response = await fetch('/api/auth/status');
-            const data = await response.json();
-
-            if (data.authenticated) {
-                // Auth successful - update UI
-                updateAuthUI(data);
-                loadAccounts();
-                return;
-            }
-        } catch (error) {
-            console.error('Poll auth status failed:', error);
-        }
-
-        // Continue polling if not authenticated and haven't exceeded max attempts
-        if (attempts < maxAttempts) {
-            setTimeout(poll, 2000);
-        }
-    };
-
-    setTimeout(poll, 2000);
 }
 
 async function verifyCode() {

@@ -37,12 +37,9 @@ class ETradeClient:
 
         logger.info(f"ETradeClient initialized with base_url: {self.base_url}")
 
-    def get_authorization_url(self, callback_url=None):
+    def get_authorization_url(self):
         """
         Step 1: Get request token and authorization URL
-
-        Args:
-            callback_url: Optional callback URL (if None, uses 'oob' for manual verification)
 
         Returns:
             dict with 'authorize_url' and 'request_token_secret'
@@ -52,11 +49,11 @@ class ETradeClient:
             # E*TRADE requires:
             # - HMAC-SHA1 signature method
             # - realm="" in Authorization header
-            # - oauth_callback="oob" or actual callback URL
+            # - oauth_callback="oob"
             oauth = OAuth1(
                 self.consumer_key,
                 client_secret=self.consumer_secret,
-                callback_uri=callback_url or 'oob',
+                callback_uri='oob',
                 signature_method='HMAC-SHA1',
                 signature_type='auth_header',
                 realm=''

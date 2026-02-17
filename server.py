@@ -53,20 +53,17 @@ def auth_status():
     })
 
 
-# Callback URL for E*TRADE OAuth
-CALLBACK_URL = "https://web-production-9f73cd.up.railway.app/api/auth/callback"
-
-
 @app.route('/api/auth/login', methods=['POST'])
 def start_login():
     """Start OAuth login flow - get authorization URL"""
     try:
         client = ETradeClient()
-        # Use callback URL for automatic redirect flow
-        auth_data = client.get_authorization_url(callback_url=CALLBACK_URL)
+        auth_data = client.get_authorization_url()
 
-        # Store request tokens for later use (keyed by request token)
-        _request_tokens[auth_data['request_token']] = {
+        # Store request tokens for later use
+        import secrets
+        flow_id = secrets.token_urlsafe(16)
+        _request_tokens[flow_id] = {
             'request_token': auth_data['request_token'],
             'request_token_secret': auth_data['request_token_secret']
         }
@@ -74,56 +71,13 @@ def start_login():
         return jsonify({
             'success': True,
             'authorize_url': auth_data['authorize_url'],
-            'message': 'Please visit the URL and authorize the application. You will be redirected back automatically.'
+            'flow_id': flow_id,
+            'message': 'Please visit the URL, authorize, and enter the verification code'
         })
 
     except Exception as e:
         logger.error(f"Login start failed: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@app.route('/api/auth/callback')
-def auth_callback():
-    """Handle OAuth callback from E*TRADE"""
-    try:
-        # E*TRADE redirects with oauth_token and oauth_verifier
-        oauth_token = request.args.get('oauth_token')
-        oauth_verifier = request.args.get('oauth_verifier')
-
-        if not oauth_token or not oauth_verifier:
-            logger.error(f"Callback missing parameters: token={oauth_token}, verifier={oauth_verifier}")
-            return redirect('/?auth_error=missing_parameters')
-
-        logger.info(f"Received callback with oauth_token={oauth_token[:20]}..., verifier={oauth_verifier}")
-
-        # Get stored request tokens
-        if oauth_token not in _request_tokens:
-            logger.error(f"No stored request token found for: {oauth_token[:20]}...")
-            return redirect('/?auth_error=invalid_or_expired_flow')
-
-        tokens = _request_tokens.pop(oauth_token)
-
-        # Complete authentication
-        client = ETradeClient()
-        result = client.complete_authentication(
-            oauth_verifier,
-            tokens['request_token'],
-            tokens['request_token_secret']
-        )
-
-        # Save tokens to storage
-        token_manager = get_token_manager()
-        token_manager.save_tokens(
-            result['access_token'],
-            result['access_token_secret']
-        )
-
-        logger.info("Authentication completed successfully via callback")
-        return redirect('/?auth_success=true')
-
-    except Exception as e:
-        logger.error(f"Callback authentication failed: {e}")
-        return redirect(f'/?auth_error={str(e)}')
 
 
 @app.route('/api/auth/verify', methods=['POST'])
