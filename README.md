@@ -48,12 +48,17 @@ python server.py
 
 ## OAuth Flow
 
+The system uses callback URL-based OAuth 1.0a authentication:
+
 1. Click "Connect to E*TRADE"
-2. A new tab opens to E*TRADE authorization
+2. A new window opens to E*TRADE authorization
 3. Login and authorize the application
-4. Copy the verification code from the page
-5. Paste the code and click "Verify"
-6. You're now authenticated for 24 hours (or until midnight ET)
+4. You'll be automatically redirected back to the app
+5. The app detects successful authentication and updates the UI
+
+**Callback URL**: `https://web-production-9f73cd.up.railway.app/api/auth/callback`
+
+> Note: E*TRADE tokens expire at midnight Eastern Time. You'll need to re-authenticate daily.
 
 ## API Endpoints
 
