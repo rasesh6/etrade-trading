@@ -1,15 +1,15 @@
 # E*TRADE Order Placement Fix Plan
 
 > **Date:** 2026-02-15
-> **Last Updated:** 2026-02-17
-> **Status:** 🔧 IN PROGRESS - Fix 2 needed for Error 101
+> **Last Updated:** 2026-02-17 17:10 UTC
+> **Status:** 🔧 IN PROGRESS - Fix 3 needed
 > **Priority:** HIGH - Core functionality broken
 
 ---
 
 ## Problem Summary
 
-The order placement feature is NOT working because **E*TRADE requires a preview-then-place flow**, but the current implementation has issues.
+The order placement feature is NOT working because **E*TRADE requires a preview-then-place flow**, but the current implementation has issues with Error 101.
 
 ---
 
@@ -20,47 +20,101 @@ The order placement feature is NOT working because **E*TRADE requires a preview-
 - **Solution:** Modified `server.py` to call `preview_order()` first, then `place_order()` with preview_id
 - **Result:** Preview works, but place still fails with Error 101
 
-### Fix 2 (2026-02-17): XML Structure for previewId 🔧 In Progress
+### Fix 2 (2026-02-17): XML Structure for previewId ❌ Did NOT Work
 - **Problem:** E*TRADE Error 101 - "For your protection, we have timed out your original order request"
-- **Root Cause:** The `<previewId>` XML element structure may be incorrect
-- **Current XML:**
-  ```xml
+- **Attempted Solution:** Changed XML from `<previewId>` to `<PreviewIds><PreviewId>` wrapper
+- **Result:** Still getting Error 101
+- **Evidence from Railway (2026-02-17 17:04:52 UTC):**
+  ```
+  Preview Response (SUCCESS):
+  {"PreviewOrderResponse":{..., "PreviewIds":[{"previewId":168321663200}]}}
+
+  Place Request XML Sent:
   <PlaceOrderRequest>
-      <previewId>168289872200</previewId>
-      <orderType>EQ</orderType>
+      <previewId>168321663200</previewId>  <!-- STILL SHOWING OLD FORMAT! -->
+      <clientOrderId>7876847538</clientOrderId>
       ...
   </PlaceOrderRequest>
+
+  Place Response (FAILED):
+  {"Error":{"code":101,"message":"For your protection, we have timed out your original order request..."}}
   ```
-- **E*TRADE may require:** The `PreviewIds` wrapper with symbol information
-  ```xml
-  <PlaceOrderRequest>
-      <PreviewIds>
-          <PreviewId>
-              <previewId>168289872200</previewId>
-              <symbol>SOXL</symbol>  <!-- May need symbol -->
-          </PreviewId>
-      </PreviewIds>
-      <orderType>EQ</orderType>
-      ...
-  </PlaceOrderRequest>
-  ```
+
+- **Key Finding:** Railway logs show OLD `<previewId>` format, NOT the new `<PreviewIds>` wrapper
+  - This suggests either:
+    1. Railway cached the old Docker image
+    2. The fix wasn't deployed properly
+    3. Need to force a fresh rebuild
 
 ---
 
-## Evidence from Logs (2026-02-17 16:55:54 UTC)
+## Current Understanding
+
+### What We Know Works:
+1. ✅ OAuth authentication works
+2. ✅ Account list, balance, portfolio APIs work
+3. ✅ Quote API works
+4. ✅ Preview order works - returns valid `previewId` and `clientOrderId`
+5. ✅ `clientOrderId` matches between preview and place calls
+
+### What's Broken:
+1. ❌ Place order always returns Error 101
+
+### Error 101 Possible Causes:
+1. XML format is still wrong (Railway may not have deployed fix)
+2. Preview session timing issue
+3. Order parameters mismatch between preview and place
+4. E*TRADE sandbox-specific behavior
+
+---
+
+## Next Steps (Fix 3)
+
+### Option A: Force Railway Rebuild
+Railway may have cached the old Docker image. Need to:
+1. Make a trivial code change to force rebuild
+2. Or clear Railway build cache
+3. Or redeploy manually
+
+### Option B: Alternative XML Format
+If wrapper change was deployed and still fails, try:
+1. Add delay between preview and place
+2. Use `<PreviewIds symbol="SOXL">` format
+3. Check pyetrade source for working XML format
+
+### Option C: Debug Output
+Add more detailed logging to confirm exact XML being sent
+
+---
+
+## Evidence from Logs (2026-02-17 17:04:52 UTC)
 
 ```
+Preview Request:
+- symbol: SOXL
+- quantity: 1
+- side: BUY
+- priceType: LIMIT
+- limitPrice: 64.59
+- clientOrderId: 7876847538
+
 Preview Response (SUCCESS):
-{"PreviewOrderResponse":{...,"Order":[{...}],"PreviewIds":[{"previewId":168289872200}]}}
+{"PreviewOrderResponse":{
+    "orderType":"EQ",
+    "totalOrderValue":64.59,
+    "previewTime":1771347892616,
+    "accountId":"133368516",
+    "Order":[{...}],
+    "PreviewIds":[{"previewId":168321663200}]
+}}
 
-Place Request (FAILED):
-Error 101: "For your protection, we have timed out your original order request"
+Place Request:
+- previewId: 168321663200
+- clientOrderId: 7876847538 (MATCHES)
+
+Place Response (FAILED):
+{"Error":{"code":101,"message":"For your protection, we have timed out your original order request..."}}
 ```
-
-**Key Observations:**
-1. Preview returns `PreviewIds` as a **list of objects** with `previewId`
-2. Current code uses simple `<previewId>` element without wrapper
-3. E*TRADE may require matching the response structure with `<PreviewIds>` wrapper
 
 ---
 
@@ -71,50 +125,6 @@ Error 101: "For your protection, we have timed out your original order request"
 3. **All order parameters must match** the preview exactly
 4. **PreviewIds structure** may need to match the response format
 5. Error 101 typically means preview session issue or XML format mismatch
-
----
-
-## Fix 2 Implementation Plan
-
-### File to Modify: `etrade_client.py`
-
-Update `_build_order_payload()` function to use proper `PreviewIds` structure:
-
-```python
-# Current (broken):
-if preview_id:
-    preview_id_element = f'<previewId>{preview_id}</previewId>\n    '
-
-# Fixed:
-if preview_id:
-    symbol = order_data.get('symbol', '').upper()
-    preview_id_element = f'''<PreviewIds>
-        <PreviewId>
-            <previewId>{preview_id}</previewId>
-        </PreviewId>
-    </PreviewIds>
-    '''
-```
-
----
-
-## Testing Plan
-
-### Test Case: Limit Order
-```bash
-curl -X POST https://web-production-9f73cd.up.railway.app/api/orders/place \
-  -H "Content-Type: application/json" \
-  -d '{
-    "account_id_key": "nJwwXIOSGgn6IAzTOdUV0w",
-    "symbol": "SOXL",
-    "quantity": 1,
-    "side": "BUY",
-    "priceType": "LIMIT",
-    "limitPrice": 63
-  }'
-```
-
-Expected: Order placed successfully with order_id returned
 
 ---
 
@@ -141,7 +151,9 @@ git push origin main --force
 
 1. [x] Implement Fix 1: Preview-then-place flow in `server.py`
 2. [x] Test Fix 1 - Got Error 101
-3. [ ] Implement Fix 2: Proper PreviewIds XML structure in `etrade_client.py`
-4. [ ] Test Fix 2 in production mode
-5. [ ] Update VERSION.md with new tag
-6. [ ] Mark as complete in documentation
+3. [x] Implement Fix 2: Proper PreviewIds XML structure in `etrade_client.py`
+4. [x] Test Fix 2 - Still Error 101 (may not have deployed)
+5. [ ] **Fix 3:** Force Railway rebuild OR try alternative approach
+6. [ ] Test Fix 3 in production mode
+7. [ ] Update VERSION.md with new tag
+8. [ ] Mark as complete in documentation

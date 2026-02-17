@@ -510,8 +510,16 @@ class ETradeClient:
         else:
             logger.error("NO PREVIEW_ID - E*TRADE will reject this order!")
 
-        # DEBUG: Log the full XML payload
+        # DEBUG: Log the full XML payload with clear marker
+        logger.info("=" * 60)
+        logger.info("DEPLOYMENT MARKER: FIX3-2026-02-17-1712")
+        logger.info("=" * 60)
         logger.info(f"FULL PLACE ORDER PAYLOAD:\n{payload}")
+        logger.info("=" * 60)
+
+        # Add small delay to let E*TRADE register the preview
+        import time
+        time.sleep(0.5)  # 500ms delay
 
         headers = {
             'Content-Type': 'application/xml',
@@ -578,6 +586,7 @@ class ETradeClient:
         </PreviewId>
     </PreviewIds>
     '''
+            logger.info(f"DEBUG: Using PreviewIds wrapper for preview_id={preview_id}")
         else:
             preview_id_element = ''
 
