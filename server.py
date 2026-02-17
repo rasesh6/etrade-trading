@@ -410,26 +410,40 @@ def place_order():
             'limitPrice': str(limit_price) if limit_price else ''
         }
 
-        # STEP 1: Preview the order first (E*TRADE requirement)
-        logger.info(f"Previewing order: {symbol} {side} {quantity} @ {price_type}")
-        preview_result = client.preview_order(account_id_key, order_data)
+        # Check if we should skip preview
+        skip_preview = data.get('skipPreview', False)
 
-        preview_id = preview_result.get('preview_id')
-        client_order_id = preview_result.get('client_order_id')
+        if skip_preview:
+            # Place directly without preview
+            logger.info(f"Placing order WITHOUT preview: {symbol} {side} {quantity} @ {price_type}")
+            result = client.place_order(
+                account_id_key,
+                order_data,
+                preview_id=None,
+                client_order_id=None
+            )
+            preview_result = {}  # No preview data
+        else:
+            # STEP 1: Preview the order first (E*TRADE requirement)
+            logger.info(f"Previewing order: {symbol} {side} {quantity} @ {price_type}")
+            preview_result = client.preview_order(account_id_key, order_data)
 
-        if not preview_id:
-            raise Exception('Preview failed - no preview_id returned from E*TRADE')
+            preview_id = preview_result.get('preview_id')
+            client_order_id = preview_result.get('client_order_id')
 
-        logger.info(f"Preview successful, preview_id={preview_id}, client_order_id={client_order_id}")
+            if not preview_id:
+                raise Exception('Preview failed - no preview_id returned from E*TRADE')
 
-        # STEP 2: Place the order with preview data
-        logger.info(f"Placing order with preview_id={preview_id}")
-        result = client.place_order(
-            account_id_key,
-            order_data,
-            preview_id=preview_id,
-            client_order_id=client_order_id
-        )
+            logger.info(f"Preview successful, preview_id={preview_id}, client_order_id={client_order_id}")
+
+            # STEP 2: Place the order with preview data
+            logger.info(f"Placing order with preview_id={preview_id}")
+            result = client.place_order(
+                account_id_key,
+                order_data,
+                preview_id=preview_id,
+                client_order_id=client_order_id
+            )
 
         return jsonify({
             'success': True,
