@@ -359,7 +359,7 @@ def preview_order():
 
 @app.route('/api/orders/place', methods=['POST'])
 def place_order():
-    """Place an order (with preview)"""
+    """Place an order (with automatic preview as required by E*TRADE)"""
     try:
         client = _get_authenticated_client()
         data = request.get_json()
@@ -410,9 +410,26 @@ def place_order():
             'limitPrice': str(limit_price) if limit_price else ''
         }
 
-        # Place order directly without preview
-        logger.info(f"Placing order: {symbol} {side} {quantity} @ {price_type}")
-        result = client.place_order(account_id_key, order_data)
+        # STEP 1: Preview the order first (E*TRADE requirement)
+        logger.info(f"Previewing order: {symbol} {side} {quantity} @ {price_type}")
+        preview_result = client.preview_order(account_id_key, order_data)
+
+        preview_id = preview_result.get('preview_id')
+        client_order_id = preview_result.get('client_order_id')
+
+        if not preview_id:
+            raise Exception('Preview failed - no preview_id returned from E*TRADE')
+
+        logger.info(f"Preview successful, preview_id={preview_id}, client_order_id={client_order_id}")
+
+        # STEP 2: Place the order with preview data
+        logger.info(f"Placing order with preview_id={preview_id}")
+        result = client.place_order(
+            account_id_key,
+            order_data,
+            preview_id=preview_id,
+            client_order_id=client_order_id
+        )
 
         return jsonify({
             'success': True,
@@ -423,6 +440,7 @@ def place_order():
                 'side': side,
                 'price_type': price_type,
                 'limit_price': limit_price,
+                'estimated_commission': preview_result.get('estimated_commission'),
                 'message': result.get('message', 'Order placed successfully')
             }
         })
