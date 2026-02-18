@@ -1,7 +1,7 @@
 # E*TRADE Trading System - Troubleshooting Guide
 
 > **Last Updated:** 2026-02-18
-> **Current Version:** v1.3.1-auto-profit
+> **Current Version:** v1.3.2-auto-profit
 > **Environment:** PRODUCTION
 > **Purpose:** Quick reference for debugging issues in future sessions
 
@@ -195,7 +195,7 @@ railway whoami
 
 **Symptoms:**
 - Order fills in production
-- Check-fill polling happens every 2 seconds
+- Check-fill polling happens but never finds order
 - Order cancelled after timeout
 - Profit order never placed
 
@@ -207,11 +207,7 @@ Type mismatch in dictionary lookup:
 
 **Solution (commit `5e76a12`):**
 ```python
-# BEFORE (broken)
-if order_id not in _pending_profit_orders:
-    profit_order = _pending_profit_orders[order_id]
-
-# AFTER (fixed)
+# Convert both to strings for comparison
 order_id_str = str(order_id)
 matching_key = None
 for k in _pending_profit_orders.keys():
@@ -265,6 +261,33 @@ This is actually a success case! The order filled before the cancel could proces
 
 ---
 
+### Issue 12: Callback OAuth Authentication Fails
+
+**Symptoms:**
+- Error when trying to use callback-based OAuth
+- `oauth_problem=callback_rejected,oauth_acceptable_callback=oob`
+
+**Root Cause:**
+E*TRADE requires callback URLs to be pre-registered in the developer portal. The production API key is configured for `oob` (out-of-band/manual) only.
+
+**Detailed Testing (2026-02-18):**
+
+| Test | Callback URL | Result |
+|------|--------------|--------|
+| HTTP callback | `http://web-production-9f73cd.up.railway.app/api/auth/callback` | Rejected |
+| HTTPS callback | `https://web-production-9f73cd.up.railway.app/api/auth/callback` | Rejected |
+
+**API Key Details:**
+- Production Key: `353ce1949c42c71cec4785343aa36539`
+- Request Token URL: `https://api.etrade.com/oauth/request_token`
+
+**Solution:**
+Contact E*TRADE developer support to register callback URL. See `etrade_callback_support_request.txt` for template.
+
+**Current State:** Using manual verification code flow (oob)
+
+---
+
 ## Key Files
 
 | File | Purpose |
@@ -273,10 +296,11 @@ This is actually a success case! The order filled before the cancel could proces
 | `etrade_client.py` | E*TRADE API wrapper, OAuth, order logic |
 | `token_manager.py` | Redis token storage |
 | `config.py` | Credentials and configuration |
-| `static/js/app.js` | Frontend logic, fill monitoring (polls every 2s) |
+| `static/js/app.js` | Frontend logic, fill monitoring (polls every 500ms) |
 | `templates/index.html` | Trading UI |
 | `VERSION.md` | Current version and features |
 | `ETRADE_API_REFERENCE.md` | Complete API documentation |
+| `etrade_callback_support_request.txt` | Template for E*TRADE support request |
 
 ---
 
@@ -318,16 +342,16 @@ If a fix breaks something:
 ```bash
 cd ~/Projects/etrade
 
+# Rollback to v1.3.2 (500ms polling)
+git checkout eb89b98
+git push origin main --force
+
 # Rollback to v1.3.1 (type fix for profit orders)
 git checkout 5e76a12
 git push origin main --force
 
 # Rollback to v1.3.0 (offset-based profit)
 git checkout 4b4a088
-git push origin main --force
-
-# Rollback to v1.2.0 (absolute price profit target)
-git checkout dd8831f
 git push origin main --force
 ```
 
@@ -366,63 +390,55 @@ railway logs --tail 20
 
 ---
 
-### Issue 12: Callback OAuth Authentication Fails
+## Pending Items
 
-**Symptoms:**
-- Error when trying to use callback-based OAuth
-- `oauth_problem=callback_rejected,oauth_acceptable_callback=oob`
+### 1. E*TRADE Callback URL Registration
+**Status:** Waiting on E*TRADE support
+**Action:** Submit `etrade_callback_support_request.txt` to E*TRADE
+**Callback URL to register:** `https://web-production-9f73cd.up.railway.app/api/auth/callback`
+**API Key:** `353ce1949c42c71cec4785343aa36539`
 
-**Root Cause:**
-E*TRADE requires callback URLs to be pre-registered in the developer portal. The production API key is configured for `oob` (out-of-band/manual) only.
+### 2. SSE for Real-time Fill Notifications
+**Status:** Planned (after callback auth)
+**Goal:** Server-side monitoring with Server-Sent Events push to browser
+**Benefits:**
+- Monitoring continues even if browser tab is closed
+- Real-time push (no polling delay)
+- More reliable than client-side polling
 
-**Detailed Testing (2026-02-18):**
-
-| Test | Callback URL | Result |
-|------|--------------|--------|
-| HTTP callback | `http://web-production-9f73cd.up.railway.app/api/auth/callback` | ❌ Rejected |
-| HTTPS callback | `https://web-production-9f73cd.up.railway.app/api/auth/callback` | ❌ Rejected |
-
-Both attempts returned:
-```
-oauth_problem=callback_rejected,oauth_acceptable_callback=oob
-```
-
-**API Key Details:**
-- Production Key: `353ce1949c42c71cec4785343aa36539`
-- Request Token URL: `https://api.etrade.com/oauth/request_token`
-
-**Solution:**
-Contact E*TRADE developer support to register callback URL for the production API key.
-
-**Current State:** Using manual verification code flow (oob)
-
-**Commits:**
-- `3910f18` - Initial callback auth implementation
-- `03c44c9` - Added detailed debugging
-- `36620b3` - Fixed HTTPS callback URL
-- `7a1644c` - Reverted to oob (callback still rejected)
+**Implementation Plan:**
+1. Store pending orders in Redis (survives restarts)
+2. Server polls E*TRADE API every 500ms
+3. Use SSE to push fills to connected browsers
+4. Fallback to current polling if SSE not available
 
 ---
 
 ## Session History
 
 ### 2026-02-18 Session
+
 **Issues Fixed:**
 1. Switched from SANDBOX to PRODUCTION mode
 2. Configured Railway CLI access for direct log viewing
 3. Fixed type mismatch bug in check-fill endpoint (order_id string vs int)
 4. Documented extended hours trading limitation (must use LIMIT orders)
+5. Improved fill detection speed (500ms polling)
 
-**Commits:**
-- `4d5d945` - Documentation update for production mode
-- `c7da7b1` - Debug logging for check-fill endpoint
-- `5e76a12` - Fix order_id type mismatch
-- `3910f18` - Attempted callback auth (first attempt)
-- `ec6b4f8` - Revert callback auth (first rejection)
-- `03c44c9` - Callback auth with detailed debugging
-- `36620b3` - Fixed HTTPS callback URL
-- `7a1644c` - Reverted to oob (callback still rejected)
-- `e9692f7` - Documentation for callback rejection
+**Commits (chronological):**
+| Commit | Description |
+|--------|-------------|
+| `4d5d945` | Documentation update for production mode |
+| `c7da7b1` | Debug logging for check-fill endpoint |
+| `5e76a12` | Fix order_id type mismatch |
+| `3910f18` | Attempted callback auth (first attempt) |
+| `ec6b4f8` | Revert callback auth (first rejection) |
+| `03c44c9` | Callback auth with detailed debugging |
+| `36620b3` | Fixed HTTPS callback URL |
+| `7a1644c` | Reverted to oob (callback still rejected) |
+| `e9692f7` | Documentation for callback rejection |
+| `3e61b69` | Added E*TRADE support request template |
+| `eb89b98` | Reduced fill polling from 2s to 500ms |
 
 **Key Learnings:**
 - E*TRADE order IDs from API are integers, URL parameters are strings
@@ -431,4 +447,13 @@ Contact E*TRADE developer support to register callback URL for the production AP
 - Always add logging when debugging async polling issues
 - E*TRADE callback URLs must be pre-registered in developer portal
 - E*TRADE returns `oauth_acceptable_callback=oob` when callback not registered
-- Both HTTP and HTTPS callbacks rejected - registration issue, not URL format
+- Railway terminates SSL, so `request.host_url` returns HTTP not HTTPS
+
+---
+
+## API Keys
+
+| Environment | Key | Used For |
+|-------------|-----|----------|
+| Sandbox | `8a18ff810b153dfd5d9ddce27667d63c` | Testing (simulated) |
+| Production | `353ce1949c42c71cec4785343aa36539` | Real trading (CURRENT) |
