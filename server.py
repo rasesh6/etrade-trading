@@ -587,11 +587,14 @@ def check_single_order_fill(account_id_key, order_id):
     Check if a specific order is filled and place profit order if so.
     Called by frontend polling for automatic fill detection.
     """
+    logger.info(f"check-fill called: account={account_id_key}, order_id={order_id}")
+    logger.info(f"Pending profit orders keys: {list(_pending_profit_orders.keys())}")
     try:
         client = _get_authenticated_client()
 
         # Check if this order has a pending profit target
         if order_id not in _pending_profit_orders:
+            logger.info(f"Order {order_id} not in pending profit orders")
             return jsonify({
                 'success': True,
                 'filled': False,
@@ -608,12 +611,15 @@ def check_single_order_fill(account_id_key, order_id):
             })
 
         # Get order details to check status and fill price
+        logger.info(f"Fetching EXECUTED orders for account {account_id_key}")
         orders = client.get_orders(account_id_key, status='EXECUTED')
+        logger.info(f"Found {len(orders)} EXECUTED orders")
 
         order_filled = False
         fill_price = None
 
         for order in orders:
+            logger.info(f"Checking order {order.get('orderId')} against {order_id}")
             if str(order.get('orderId')) == str(order_id):
                 order_filled = True
                 # Get fill price from OrderDetail
@@ -622,9 +628,11 @@ def check_single_order_fill(account_id_key, order_id):
                         if detail.get('executedPrice'):
                             fill_price = float(detail.get('executedPrice'))
                             break
+                logger.info(f"Order {order_id} found! Fill price: {fill_price}")
                 break
 
         if not order_filled:
+            logger.info(f"Order {order_id} not found in EXECUTED orders")
             return jsonify({
                 'success': True,
                 'filled': False,
