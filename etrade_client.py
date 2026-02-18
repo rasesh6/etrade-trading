@@ -37,23 +37,35 @@ class ETradeClient:
 
         logger.info(f"ETradeClient initialized with base_url: {self.base_url}")
 
-    def get_authorization_url(self):
+    def get_authorization_url(self, callback_url=None):
         """
         Step 1: Get request token and authorization URL
+
+        Args:
+            callback_url: Optional callback URL. If None, uses 'oob' for manual code entry.
 
         Returns:
             dict with 'authorize_url' and 'request_token_secret'
         """
         try:
+            # Use provided callback URL or default to 'oob' (out-of-band)
+            callback_uri = callback_url or 'oob'
+
+            logger.info(f"=" * 60)
+            logger.info(f"REQUEST TOKEN CALL")
+            logger.info(f"Callback URL: {callback_uri}")
+            logger.info(f"Consumer Key: {self.consumer_key}")
+            logger.info(f"Request Token URL: {REQUEST_TOKEN_URL}")
+            logger.info(f"=" * 60)
+
             # Create OAuth1 for request token
             # E*TRADE requires:
             # - HMAC-SHA1 signature method
             # - realm="" in Authorization header
-            # - oauth_callback="oob"
             oauth = OAuth1(
                 self.consumer_key,
                 client_secret=self.consumer_secret,
-                callback_uri='oob',
+                callback_uri=callback_uri,
                 signature_method='HMAC-SHA1',
                 signature_type='auth_header',
                 realm=''
@@ -66,7 +78,7 @@ class ETradeClient:
             )
 
             logger.info(f"Request token response status: {response.status_code}")
-            logger.info(f"Request token response: {response.text[:500] if response.text else 'Empty'}")
+            logger.info(f"Request token FULL response: {response.text}")
 
             if response.status_code != 200:
                 raise Exception(f"Request token failed ({response.status_code}): {response.text}")
