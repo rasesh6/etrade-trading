@@ -523,6 +523,73 @@ select {
     text-align: center;
 }
 
+/* Profit Target Section */
+.profit-section {
+    margin-bottom: 16px;
+    padding: 12px;
+    background: rgba(0, 184, 148, 0.1);
+    border-radius: 8px;
+    border: 1px dashed var(--success);
+}
+
+.profit-header {
+    margin-bottom: 8px;
+}
+
+.profit-header label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.profit-header input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+#profit-target-input label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+}
+
+#profit-target-input .info {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* Pending Profit Orders List */
+.pending-profits-list {
+    margin-top: 12px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.pending-profit-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    background: var(--bg-input);
+    border-radius: 6px;
+    margin-bottom: 6px;
+    font-size: 13px;
+    border-left: 3px solid var(--warning);
+}
+
+.pending-profit-item .profit-price {
+    color: var(--success);
+    font-weight: 600;
+    margin-left: 8px;
+}
+
 /* Side Selector */
 .side-selector {
     display: grid;

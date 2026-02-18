@@ -83,6 +83,17 @@
                         <p class="placeholder-text">No open orders</p>
                     </div>
                 </div>
+
+                <!-- Pending Profit Orders -->
+                <div class="card">
+                    <h2>Pending Profit Orders</h2>
+                    <button class="btn btn-secondary btn-small" onclick="checkFillsAndPlaceProfits()">
+                        Check Fills & Place Profit Orders
+                    </button>
+                    <div id="pending-profits-list" class="pending-profits-list">
+                        <p class="placeholder-text">No pending profit orders</p>
+                    </div>
+                </div>
             </div>
 
             <!-- Right Column: Order Entry -->
@@ -157,6 +168,24 @@
                         </div>
                         <div id="market-price-display" style="display: none;" class="market-price-info">
                             Will use <strong id="price-source-label">-</strong> price at order time
+                        </div>
+                    </div>
+
+                    <!-- Profit Target Section -->
+                    <div class="profit-section">
+                        <div class="profit-header">
+                            <label>
+                                <input type="checkbox" id="enable-profit-target" onchange="toggleProfitTarget()">
+                                Add Profit Target
+                            </label>
+                        </div>
+                        <div id="profit-target-input" style="display: none;">
+                            <label>Profit Price</label>
+                            <div class="price-input">
+                                <span>$</span>
+                                <input type="number" id="profit-price" placeholder="0.00" step="0.01" min="0.01">
+                            </div>
+                            <p class="small-text info">When opening order fills, a limit order will be placed at this price to close the position.</p>
                         </div>
                     </div>
 

@@ -26,6 +26,10 @@ app.secret_key = SECRET_KEY
 # Store request tokens temporarily during auth flow
 _request_tokens = {}
 
+# Store pending profit orders (in memory - will be lost on restart)
+# Format: {order_id: {symbol, quantity, profit_price, account_id_key, opening_side}}
+_pending_profit_orders = {}
+
 
 # ==================== ROUTES ====================
 
@@ -385,6 +389,9 @@ def place_order():
         limit_price = data.get('limitPrice')
         limit_price_source = data.get('limitPriceSource', 'manual')
 
+        # Profit target price (optional)
+        profit_price = data.get('profit_price')
+
         # Fetch price if using BID/ASK
         if price_type == 'LIMIT' and limit_price_source in ['bid', 'ask']:
             quote = client.get_quote(symbol)
@@ -445,17 +452,33 @@ def place_order():
                 client_order_id=client_order_id
             )
 
+        order_id = result.get('order_id')
+
+        # If profit price is set, store the pending profit order
+        if profit_price and order_id:
+            _pending_profit_orders[order_id] = {
+                'symbol': symbol,
+                'quantity': quantity,
+                'profit_price': profit_price,
+                'account_id_key': account_id_key,
+                'opening_side': side,
+                'status': 'waiting',
+                'created_at': datetime.utcnow().isoformat()
+            }
+            logger.info(f"Stored pending profit order for order_id={order_id}, profit_price={profit_price}")
+
         return jsonify({
             'success': True,
             'order': {
-                'order_id': result.get('order_id'),
+                'order_id': order_id,
                 'symbol': symbol,
                 'quantity': quantity,
                 'side': side,
                 'price_type': price_type,
                 'limit_price': limit_price,
                 'estimated_commission': preview_result.get('estimated_commission'),
-                'message': result.get('message', 'Order placed successfully')
+                'message': result.get('message', 'Order placed successfully'),
+                'profit_target': profit_price
             }
         })
 
@@ -515,6 +538,11 @@ def cancel_order(account_id_key, order_id):
         client = _get_authenticated_client()
         result = client.cancel_order(account_id_key, order_id)
 
+        # Also remove any pending profit order for this order
+        if order_id in _pending_profit_orders:
+            del _pending_profit_orders[order_id]
+            logger.info(f"Removed pending profit order for cancelled order_id={order_id}")
+
         return jsonify({
             'success': True,
             'order_id': result.get('order_id'),
@@ -523,6 +551,131 @@ def cancel_order(account_id_key, order_id):
 
     except Exception as e:
         logger.error(f"Cancel order failed: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==================== PENDING PROFIT ORDERS API ====================
+
+@app.route('/api/orders/pending-profits')
+def get_pending_profits():
+    """Get list of pending profit orders"""
+    pending_list = []
+    for order_id, profit_order in _pending_profit_orders.items():
+        pending_list.append({
+            'order_id': order_id,
+            'symbol': profit_order['symbol'],
+            'quantity': profit_order['quantity'],
+            'profit_price': profit_order['profit_price'],
+            'status': profit_order['status'],
+            'created_at': profit_order.get('created_at', '')
+        })
+
+    return jsonify({
+        'success': True,
+        'pending_profits': pending_list
+    })
+
+
+@app.route('/api/orders/check-fills', methods=['POST'])
+def check_fills_and_place_profits():
+    """
+    Check for filled orders and place corresponding profit orders.
+    This is a manual trigger - user clicks "Check Fills" button.
+    """
+    try:
+        client = _get_authenticated_client()
+        data = request.get_json()
+        account_id_key = data.get('account_id_key')
+
+        if not account_id_key:
+            return jsonify({'success': False, 'error': 'account_id_key is required'}), 400
+
+        # Get all orders (EXECUTED status to find fills)
+        try:
+            executed_orders = client.get_orders(account_id_key, status='EXECUTED')
+        except Exception as e:
+            logger.warning(f"Could not fetch executed orders: {e}")
+            executed_orders = []
+
+        placed_orders = []
+        checked_count = 0
+        placed_count = 0
+
+        # Check each pending profit order
+        for order_id, profit_order in list(_pending_profit_orders.items()):
+            if profit_order['account_id_key'] != account_id_key:
+                continue
+
+            if profit_order['status'] != 'waiting':
+                continue
+
+            checked_count += 1
+
+            # Check if the opening order has been executed
+            order_filled = False
+            for executed in executed_orders:
+                if str(executed.get('orderId')) == str(order_id):
+                    order_filled = True
+                    break
+
+            if order_filled:
+                # Determine closing side
+                opening_side = profit_order['opening_side']
+                if opening_side in ['BUY', 'BUY_TO_COVER']:
+                    closing_side = 'SELL'
+                else:
+                    closing_side = 'BUY'
+
+                # Place the profit order
+                profit_order_data = {
+                    'symbol': profit_order['symbol'],
+                    'quantity': profit_order['quantity'],
+                    'orderAction': closing_side,
+                    'priceType': 'LIMIT',
+                    'orderTerm': 'GOOD_FOR_DAY',
+                    'limitPrice': str(profit_order['profit_price'])
+                }
+
+                try:
+                    # Preview first
+                    preview_result = client.preview_order(account_id_key, profit_order_data)
+                    preview_id = preview_result.get('preview_id')
+
+                    if preview_id:
+                        # Place the profit order
+                        result = client.place_order(
+                            account_id_key,
+                            profit_order_data,
+                            preview_id=preview_id,
+                            client_order_id=preview_result.get('client_order_id')
+                        )
+
+                        placed_orders.append({
+                            'symbol': profit_order['symbol'],
+                            'quantity': profit_order['quantity'],
+                            'side': closing_side,
+                            'limit_price': profit_order['profit_price'],
+                            'order_id': result.get('order_id')
+                        })
+                        placed_count += 1
+
+                        # Remove from pending
+                        _pending_profit_orders[order_id]['status'] = 'placed'
+                        logger.info(f"Placed profit order for {profit_order['symbol']} @ ${profit_order['profit_price']}")
+
+                except Exception as e:
+                    logger.error(f"Failed to place profit order for {profit_order['symbol']}: {e}")
+                    _pending_profit_orders[order_id]['status'] = f'error: {str(e)}'
+
+        return jsonify({
+            'success': True,
+            'checked_count': checked_count,
+            'placed_count': placed_count,
+            'placed_orders': placed_orders
+        })
+
+    except Exception as e:
+        logger.error(f"Check fills failed: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

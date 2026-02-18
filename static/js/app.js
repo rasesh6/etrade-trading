@@ -208,6 +208,9 @@ async function loadAccountInfo() {
 
     // Load open orders
     loadOrders(currentAccountIdKey);
+
+    // Load pending profit orders
+    loadPendingProfits();
 }
 
 async function loadBalance(accountIdKey) {
@@ -426,6 +429,82 @@ function setSide(side) {
     updateOrderSummary();
 }
 
+// ==================== PROFIT TARGET ====================
+
+function toggleProfitTarget() {
+    const enabled = document.getElementById('enable-profit-target').checked;
+    const inputDiv = document.getElementById('profit-target-input');
+    inputDiv.style.display = enabled ? 'block' : 'none';
+}
+
+async function loadPendingProfits() {
+    try {
+        const response = await fetch('/api/orders/pending-profits');
+        const data = await response.json();
+
+        const container = document.getElementById('pending-profits-list');
+
+        if (data.success && data.pending_profits && data.pending_profits.length > 0) {
+            container.innerHTML = data.pending_profits.map(item => `
+                <div class="pending-profit-item">
+                    <div>
+                        <span class="position-symbol">${item.symbol}</span>
+                        <span class="position-qty">x ${item.quantity}</span>
+                        <span class="profit-price">@ $${item.profit_price}</span>
+                    </div>
+                    <div class="small-text">${item.status || 'Waiting for fill'}</div>
+                </div>
+            `).join('');
+        } else {
+            container.innerHTML = '<p class="placeholder-text">No pending profit orders</p>';
+        }
+    } catch (error) {
+        console.error('Load pending profits failed:', error);
+    }
+}
+
+async function checkFillsAndPlaceProfits() {
+    if (!currentAccountIdKey) {
+        alert('Please select an account first');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/orders/check-fills', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                account_id_key: currentAccountIdKey
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            let message = `Processed ${data.checked_count || 0} pending orders.\n`;
+            message += `Placed ${data.placed_count || 0} profit orders.`;
+
+            if (data.placed_orders && data.placed_orders.length > 0) {
+                message += '\n\nProfit orders placed:\n';
+                data.placed_orders.forEach(order => {
+                    message += `${order.symbol} x${order.quantity} @ $${order.limit_price}\n`;
+                });
+            }
+
+            alert(message);
+
+            // Refresh the pending profits list and orders
+            loadPendingProfits();
+            loadOrders(currentAccountIdKey);
+        } else {
+            alert('Check failed: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Check fills failed:', error);
+        alert('Check failed: ' + error.message);
+    }
+}
+
 function updateOrderSummary() {
     const symbol = document.getElementById('order-symbol').value.toUpperCase() || '-';
     const quantity = parseInt(document.getElementById('order-quantity').value) || 0;
@@ -507,6 +586,15 @@ async function placeOrder() {
         // For bid/ask, server will fetch the price
     }
 
+    // Check for profit target
+    const enableProfitTarget = document.getElementById('enable-profit-target').checked;
+    const profitPrice = enableProfitTarget ? parseFloat(document.getElementById('profit-price').value) || 0 : null;
+
+    if (enableProfitTarget && profitPrice <= 0) {
+        alert('Please enter a valid profit target price');
+        return;
+    }
+
     const btn = document.getElementById('place-order-btn');
     const originalText = btn.textContent;
     btn.disabled = true;
@@ -523,7 +611,8 @@ async function placeOrder() {
                 side: currentSide,
                 priceType: orderType,
                 limitPrice: limitPrice,
-                limitPriceSource: orderType === 'LIMIT' ? currentPriceSource : null
+                limitPriceSource: orderType === 'LIMIT' ? currentPriceSource : null,
+                profit_price: profitPrice  // Include profit target
             })
         });
 
@@ -532,6 +621,7 @@ async function placeOrder() {
         if (data.success) {
             showResponse('success', 'Order Placed', data.order);
             loadOrders(currentAccountIdKey);  // Refresh orders list
+            loadPendingProfits();  // Refresh pending profits
         } else {
             showResponse('error', 'Order Failed', { error: data.error });
         }
