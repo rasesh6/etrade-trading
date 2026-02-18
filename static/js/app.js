@@ -13,31 +13,9 @@ let fillCheckInterval = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     checkAuthStatus();
-    checkAuthCallback();  // Check for callback parameters
     setupEventListeners();
     updateOrderSummary();
 });
-
-function checkAuthCallback() {
-    // Check URL for auth success or error from OAuth callback
-    const urlParams = new URLSearchParams(window.location.search);
-    const authSuccess = urlParams.get('auth_success');
-    const authError = urlParams.get('auth_error');
-
-    if (authSuccess) {
-        // Clean up URL
-        window.history.replaceState({}, document.title, window.location.pathname);
-        // Show success message
-        setTimeout(() => {
-            alert('Authentication successful! You can now place orders.');
-        }, 500);
-    } else if (authError) {
-        // Clean up URL
-        window.history.replaceState({}, document.title, window.location.pathname);
-        // Show error message
-        alert('Authentication failed: ' + authError);
-    }
-}
 
 function setupEventListeners() {
     // Order form inputs
@@ -79,18 +57,21 @@ async function checkAuthStatus() {
 function updateAuthUI(data) {
     const badge = document.getElementById('auth-badge');
     const notAuth = document.getElementById('auth-not-authenticated');
+    const authFlow = document.getElementById('auth-flow');
     const authed = document.getElementById('auth-authenticated');
 
     if (data.authenticated) {
         badge.textContent = 'Connected';
         badge.classList.add('authenticated');
         notAuth.style.display = 'none';
+        authFlow.style.display = 'none';
         authed.style.display = 'block';
         document.getElementById('token-expires').textContent = data.expires_at || '-';
     } else {
         badge.textContent = 'Not Connected';
         badge.classList.remove('authenticated');
         notAuth.style.display = 'block';
+        authFlow.style.display = 'none';
         authed.style.display = 'none';
     }
 }
@@ -99,29 +80,68 @@ async function startLogin() {
     try {
         const btn = event.target;
         btn.disabled = true;
-        btn.textContent = 'Connecting...';
+        btn.textContent = 'Starting...';
 
         const response = await fetch('/api/auth/login', { method: 'POST' });
         const data = await response.json();
 
         if (data.success) {
-            // Redirect to E*TRADE authorization page
-            // User will be redirected back to our callback URL automatically
-            window.location.href = data.authorize_url;
+            document.getElementById('auth-url').href = data.authorize_url;
+            document.getElementById('flow-id').value = data.flow_id;
+
+            document.getElementById('auth-not-authenticated').style.display = 'none';
+            document.getElementById('auth-flow').style.display = 'block';
         } else {
             alert('Failed to start login: ' + data.error);
-            btn.disabled = false;
-            btn.textContent = 'Connect to E*TRADE';
         }
+
+        btn.disabled = false;
+        btn.textContent = 'Connect to E*TRADE';
 
     } catch (error) {
         console.error('Start login failed:', error);
         alert('Failed to start login: ' + error.message);
-        const btn = document.querySelector('#auth-not-authenticated .btn-primary');
-        if (btn) {
-            btn.disabled = false;
-            btn.textContent = 'Connect to E*TRADE';
+    }
+}
+
+async function verifyCode() {
+    const code = document.getElementById('verifier-code').value.trim();
+    const flowId = document.getElementById('flow-id').value;
+
+    if (!code) {
+        alert('Please enter the verification code');
+        return;
+    }
+
+    try {
+        const btn = event.target;
+        btn.disabled = true;
+        btn.textContent = 'Verifying...';
+
+        const response = await fetch('/api/auth/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                verifier_code: code,
+                flow_id: flowId
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            checkAuthStatus();
+            alert('Authentication successful!');
+        } else {
+            alert('Verification failed: ' + data.error);
         }
+
+        btn.disabled = false;
+        btn.textContent = 'Verify';
+
+    } catch (error) {
+        console.error('Verify failed:', error);
+        alert('Verification failed: ' + error.message);
     }
 }
 
