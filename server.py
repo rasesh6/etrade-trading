@@ -589,11 +589,20 @@ def check_single_order_fill(account_id_key, order_id):
     """
     logger.info(f"check-fill called: account={account_id_key}, order_id={order_id}")
     logger.info(f"Pending profit orders keys: {list(_pending_profit_orders.keys())}")
+    logger.info(f"order_id type: {type(order_id)}, stored key types: {[type(k) for k in _pending_profit_orders.keys()]}")
     try:
         client = _get_authenticated_client()
 
         # Check if this order has a pending profit target
-        if order_id not in _pending_profit_orders:
+        # Note: order_id from URL is string, stored keys may be int - convert for comparison
+        order_id_str = str(order_id)
+        matching_key = None
+        for k in _pending_profit_orders.keys():
+            if str(k) == order_id_str:
+                matching_key = k
+                break
+
+        if not matching_key:
             logger.info(f"Order {order_id} not in pending profit orders")
             return jsonify({
                 'success': True,
@@ -601,9 +610,12 @@ def check_single_order_fill(account_id_key, order_id):
                 'message': 'No profit target for this order'
             })
 
-        profit_order = _pending_profit_orders[order_id]
+        # Use the actual key from the dict (may be int or string)
+        profit_order = _pending_profit_orders[matching_key]
+        logger.info(f"Profit order found using key {matching_key}, status={profit_order.get('status')}")
 
         if profit_order['status'] != 'waiting':
+            logger.info(f"Profit order status is not 'waiting', returning early")
             return jsonify({
                 'success': True,
                 'filled': False,
