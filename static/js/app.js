@@ -587,14 +587,14 @@ function startOrderMonitoring(orderId, symbol, quantity, side, offsetType, offse
     statusCard.style.display = 'block';
 
     let elapsed = 0;
-    const pollInterval = 2000; // Check every 2 seconds
+    const pollInterval = 500; // Check every 500ms for faster fill detection
 
     // Clear any existing interval
     if (fillCheckInterval) {
         clearInterval(fillCheckInterval);
     }
 
-    updateOrderStatus(`Waiting for ${symbol} order to fill... (${elapsed}/${timeout}s)`);
+    updateOrderStatus(`Waiting for ${symbol} order to fill... (${elapsed.toFixed(1)}/${timeout}s)`);
 
     fillCheckInterval = setInterval(async () => {
         elapsed += pollInterval / 1000;
@@ -616,7 +616,7 @@ function startOrderMonitoring(orderId, symbol, quantity, side, offsetType, offse
             return;
         }
 
-        updateOrderStatus(`Waiting for ${symbol} order to fill... (${elapsed}/${timeout}s)`);
+        updateOrderStatus(`Waiting for ${symbol} order to fill... (${elapsed.toFixed(1)}/${timeout}s)`);
 
         // Check if order is filled
         try {

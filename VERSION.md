@@ -1,11 +1,10 @@
 # E*TRADE Trading System - Version History
 
-## Current Version: v1.3.1-auto-profit
+## Current Version: v1.3.2-auto-profit
 
-**Status: WORKING - Auto Fill Checking & Offset-Based Profit Targets (Type Fix)**
+**Status: WORKING - Auto Fill Checking & Offset-Based Profit Targets**
 
-**Git Tag:** `v1.3.1-auto-profit` (to be created)
-**Commit:** `5e76a12`
+**Commit:** (pending)
 **Date:** 2026-02-18
 **Deployed At:** https://web-production-9f73cd.up.railway.app
 **Environment:** PRODUCTION (real trading)
@@ -24,7 +23,7 @@
 | Order Preview | ✅ WORKING | Preview before place |
 | Order Placement | ✅ WORKING | FIXED 2026-02-18 |
 | Profit Target (Offset) | ✅ WORKING | $ or % offset from fill price |
-| Auto Fill Checking | ✅ WORKING | Polls every 2s (FIXED v1.3.1) |
+| Auto Fill Checking | ✅ WORKING | Polls every 500ms (v1.3.2) |
 | Auto Cancel on Timeout | ✅ WORKING | Cancel if not filled within timeout |
 
 ---
@@ -33,11 +32,35 @@
 
 | Version | Date | Status | Key Changes |
 |---------|------|--------|-------------|
-| v1.3.1 | 2026-02-18 | ✅ CURRENT | Fixed order_id type mismatch in check-fill |
+| v1.3.2 | 2026-02-18 | ✅ CURRENT | Faster fill polling (500ms instead of 2s) |
+| v1.3.1 | 2026-02-18 | Working | Fixed order_id type mismatch in check-fill |
 | v1.3.0 | 2026-02-18 | Working | Offset-based profit, auto fill checking, PRODUCTION mode |
 | v1.2.0 | 2026-02-18 | Working | Profit target feature, sandbox mode |
 | v1.1.0 | 2026-02-18 | Working | Fixed order placement with PreviewIds wrapper |
 | v1.0.0 | 2026-02-15 | Working | OAuth, accounts, quotes working |
+
+---
+
+## v1.3.2 - Faster Fill Detection (2026-02-18)
+
+### Improvement:
+**Reduced fill polling interval from 2s to 500ms**
+
+**Before:**
+- Poll every 2 seconds
+- 15-second timeout = 7-8 checks
+- Average fill detection: ~1 second after actual fill
+
+**After:**
+- Poll every 500ms
+- 15-second timeout = 30 checks
+- Average fill detection: ~0.25 seconds after actual fill
+
+**Changes:**
+- `static/js/app.js`: Changed `pollInterval` from 2000 to 500
+- Updated elapsed time display to show 1 decimal place (e.g., "3.5/15s")
+
+**Note:** More frequent polling means more API calls. E*TRADE rate limits apply.
 
 ---
 
