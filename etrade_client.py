@@ -37,23 +37,28 @@ class ETradeClient:
 
         logger.info(f"ETradeClient initialized with base_url: {self.base_url}")
 
-    def get_authorization_url(self):
+    def get_authorization_url(self, callback_url=None):
         """
         Step 1: Get request token and authorization URL
+
+        Args:
+            callback_url: Optional callback URL. If None, uses 'oob' for manual code entry.
 
         Returns:
             dict with 'authorize_url' and 'request_token_secret'
         """
         try:
+            # Use provided callback URL or default to 'oob' (out-of-band)
+            callback_uri = callback_url or 'oob'
+
             # Create OAuth1 for request token
             # E*TRADE requires:
             # - HMAC-SHA1 signature method
             # - realm="" in Authorization header
-            # - oauth_callback="oob"
             oauth = OAuth1(
                 self.consumer_key,
                 client_secret=self.consumer_secret,
-                callback_uri='oob',
+                callback_uri=callback_uri,
                 signature_method='HMAC-SHA1',
                 signature_type='auth_header',
                 realm=''
