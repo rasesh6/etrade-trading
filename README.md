@@ -4,6 +4,7 @@ A simple, efficient web-based trading interface for E*TRADE.
 
 **Live URL**: https://web-production-9f73cd.up.railway.app
 **GitHub**: https://github.com/rasesh6/etrade-trading
+**Current Version**: v1.2.0 (Sandbox Mode)
 
 ## Features
 
@@ -13,8 +14,10 @@ A simple, efficient web-based trading interface for E*TRADE.
 - Portfolio positions view
 - Market and Limit order placement
 - Limit orders with BID/ASK or manual price selection
+- **Profit Target Orders** - Auto place closing order when opening fills
 - Open orders view with cancel functionality
 - Responsive dark-themed UI
+- Sandbox/Production environment toggle
 
 ## Local Development
 
@@ -55,6 +58,25 @@ python server.py
 5. Paste the code and click "Verify"
 6. You're now authenticated for 24 hours (or until midnight ET)
 
+## Profit Target Orders
+
+The system supports automatic profit order placement:
+
+1. **Place Opening Order**: Check "Add Profit Target" and enter your target price
+2. **Wait for Fill**: The opening order must be executed
+3. **Check Fills**: Click "Check Fills & Place Profit Orders" button
+4. **Profit Order Placed**: System automatically places the closing limit order
+
+**Example:**
+```
+Opening: BUY 100 AAPL @ Market
+Profit Target: $180
+
+After fill → SELL 100 AAPL @ $180 LIMIT
+```
+
+**Note:** Pending profit orders are stored in memory and lost on server restart.
+
 ## API Endpoints
 
 ### Authentication
@@ -73,9 +95,11 @@ python server.py
 
 ### Orders
 - `POST /api/orders/preview` - Preview order
-- `POST /api/orders/place` - Place order
+- `POST /api/orders/place` - Place order (supports profit_price parameter)
 - `GET /api/orders/{account_id}` - List orders
 - `POST /api/orders/{account_id}/{order_id}/cancel` - Cancel order
+- `GET /api/orders/pending-profits` - List pending profit orders
+- `POST /api/orders/check-fills` - Check fills and place profit orders
 
 ## File Structure
 

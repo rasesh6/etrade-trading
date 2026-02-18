@@ -1,14 +1,14 @@
 # E*TRADE Trading System - Version History
 
-## Current Version: v1.1.0-order-placement-working
+## Current Version: v1.2.0-profit-target
 
-**Status: FULLY WORKING - Order Placement Confirmed**
+**Status: FULLY WORKING - Profit Target Feature Added**
 
-**Git Tag:** `v1.1.0-order-placement-working`
-**Commit:** `666ef5c`
+**Git Tag:** `v1.2.0-profit-target` (to be created)
+**Commit:** `dd8831f`
 **Date:** 2026-02-18
 **Deployed At:** https://web-production-9f73cd.up.railway.app
-**Deployment Marker:** `FIX4-2026-02-18-PREVIEWIDS-WRAPPER`
+**Environment:** SANDBOX (testing mode)
 
 ---
 
@@ -16,42 +16,64 @@
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| OAuth 1.0a Authentication | ✅ WORKING | Production mode |
+| OAuth 1.0a Authentication | ✅ WORKING | Sandbox/Production |
 | Account List | ✅ WORKING | Shows all accounts |
 | Account Balance | ✅ WORKING | Net value, cash, buying power |
 | Portfolio Positions | ✅ WORKING | Shows holdings with P&L |
 | Market Quotes | ✅ WORKING | Real-time quotes with bid/ask |
 | Order Preview | ✅ WORKING | Preview before place |
-| Order Placement | ✅ WORKING | **FIXED 2026-02-18** |
+| Order Placement | ✅ WORKING | FIXED 2026-02-18 |
+| Profit Target Orders | ✅ NEW | Auto place profit order on fill |
 
 ---
 
-## Success Confirmation (2026-02-18)
+## Version History
 
-### Order Placed Successfully
+| Version | Date | Status | Key Changes |
+|---------|------|--------|-------------|
+| v1.2.0 | 2026-02-18 | ✅ CURRENT | Profit target feature, sandbox mode |
+| v1.1.0 | 2026-02-18 | Working | Fixed order placement with PreviewIds wrapper |
+| v1.0.0 | 2026-02-15 | Working | OAuth, accounts, quotes working |
+
+---
+
+## v1.2.0 - Profit Target Feature (2026-02-18)
+
+### New Feature: Profit Target Orders
+
+Automatically places a closing limit order when the opening order fills.
+
+**Workflow:**
+1. Place BUY/SELL order with profit target price enabled
+2. System stores pending profit order (in memory)
+3. Click "Check Fills & Place Profit Orders" button
+4. System checks executed orders and places profit orders
+
+**UI Components Added:**
+- "Add Profit Target" checkbox in order form
+- Profit Price input field
+- "Pending Profit Orders" section
+- "Check Fills & Place Profit Orders" button
+
+**Example:**
 ```
-Symbol: SOXL
-Action: BUY
-Quantity: 1
-Type: LIMIT
-Limit Price: $65.43
-Order ID: 36
-Message: Order placed successfully
+Opening: BUY 100 AAPL @ Market
+Profit Target: $180
+
+After fill → SELL 100 AAPL @ $180 LIMIT is placed
 ```
 
-### Railway Log Evidence
-```
-DEPLOYMENT MARKER: FIX4-2026-02-18-PREVIEWIDS-WRAPPER
-FULL PLACE ORDER PAYLOAD:
-<PlaceOrderRequest>
-    <PreviewIds><previewId>169280196200</previewId></PreviewIds>
-    <orderType>EQ</orderType>
-    <clientOrderId>2255377809</clientOrderId>
-    ...
-</PlaceOrderRequest>
-Response Status: 200
-PlaceOrderResponse received with Order ID: 36
-```
+### Current Environment: SANDBOX
+
+System is currently in sandbox mode for testing:
+- **Sandbox API URL:** `https://apisb.etrade.com`
+- **Sandbox accounts are simulated** (not your real accounts)
+- Orders are simulated (no real trades)
+
+To switch to production:
+1. Go to Railway dashboard
+2. Change `ETRADE_USE_SANDBOX` to `false`
+3. Railway will redeploy
 
 ---
 
@@ -93,36 +115,36 @@ oauth = OAuth1(
 headers = {'consumerkey': consumer_key}  # lowercase!
 ```
 
+### Pending Profit Orders Storage
+
+Currently stored in memory (`_pending_profit_orders` dict in server.py):
+- Lost on server restart
+- For production, should migrate to Redis
+
 ---
 
 ## Rollback Instructions
 
-If future changes break the system, rollback to this version:
+If future changes break the system, rollback:
 
 ```bash
-# Option 1: Checkout the tag
-git checkout v1.1.0-order-placement-working
+# Rollback to v1.2.0 (profit target version)
+git checkout dd8831f
+git push origin main --force
 
-# Option 2: Reset to the commit
-git reset --hard 666ef5c
-
-# Option 3: Create new branch from tag
-git checkout -b fix-rollback v1.1.0-order-placement-working
-```
-
-After rollback, force push to trigger Railway redeploy:
-```bash
+# Rollback to v1.1.0 (basic order placement)
+git checkout fbc4050
 git push origin main --force
 ```
 
 ---
 
-## Version History
+## API Keys
 
-| Version | Date | Status | Key Changes |
-|---------|------|--------|-------------|
-| v1.1.0 | 2026-02-18 | ✅ WORKING | Fixed order placement with PreviewIds wrapper |
-| v1.0.0 | 2026-02-15 | Working | OAuth, accounts, quotes working |
+| Environment | Key | Used For |
+|-------------|-----|----------|
+| Sandbox | `8a18ff810b153dfd5d9ddce27667d63c` | Testing (simulated) |
+| Production | `353ce1949c42c71cec4785343aa36539` | Real trading |
 
 ---
 
