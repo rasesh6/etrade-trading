@@ -61,8 +61,9 @@ def auth_status():
 def start_login():
     """Start OAuth login flow - get authorization URL"""
     try:
-        # Use hardcoded HTTPS callback URL (Railway terminates SSL, so request.host_url is HTTP)
-        callback_url = 'https://web-production-9f73cd.up.railway.app/api/auth/callback'
+        # Determine callback URL based on USE_SANDBOX setting
+        # For production, use the Railway URL
+        callback_url = request.host_url.rstrip('/') + '/api/auth/callback'
         logger.info(f"Starting OAuth login with callback URL: {callback_url}")
 
         client = ETradeClient()
