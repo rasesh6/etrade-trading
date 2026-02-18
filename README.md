@@ -60,22 +60,25 @@ python server.py
 
 ## Profit Target Orders
 
-The system supports automatic profit order placement:
+The system supports automatic profit order placement with offset-based targeting:
 
-1. **Place Opening Order**: Check "Add Profit Target" and enter your target price
-2. **Wait for Fill**: The opening order must be executed
-3. **Check Fills**: Click "Check Fills & Place Profit Orders" button
-4. **Profit Order Placed**: System automatically places the closing limit order
+1. **Place Opening Order**: Check "Add Profit Target"
+2. **Specify Offset**: Choose $ (dollar) or % (percent) offset from fill price
+3. **Set Timeout**: How long to wait for fill before auto-cancelling (default 15s)
+4. **Auto Monitoring**: System polls every 2 seconds for fill status
+5. **Profit Order Placed**: When filled, profit order placed at (fill_price + offset)
 
 **Example:**
 ```
-Opening: BUY 100 AAPL @ Market
-Profit Target: $180
+Opening: BUY 1 AAPL @ Market
+Profit Target: $1.00 offset (dollar)
+Timeout: 15 seconds
 
-After fill → SELL 100 AAPL @ $180 LIMIT
+If filled @ $175 → SELL 1 AAPL @ $176 LIMIT is placed automatically
+If not filled within 15s → Order cancelled
 ```
 
-**Note:** Pending profit orders are stored in memory and lost on server restart.
+**Note:** The monitoring is handled by the frontend. If you close the browser, pending orders will not be monitored.
 
 ## API Endpoints
 
@@ -95,11 +98,12 @@ After fill → SELL 100 AAPL @ $180 LIMIT
 
 ### Orders
 - `POST /api/orders/preview` - Preview order
-- `POST /api/orders/place` - Place order (supports profit_price parameter)
+- `POST /api/orders/place` - Place order (supports profit_offset parameters)
 - `GET /api/orders/{account_id}` - List orders
 - `POST /api/orders/{account_id}/{order_id}/cancel` - Cancel order
 - `GET /api/orders/pending-profits` - List pending profit orders
-- `POST /api/orders/check-fills` - Check fills and place profit orders
+- `GET /api/orders/{account_id}/check-fill/{order_id}` - Check single order fill status
+- `POST /api/orders/check-fills` - Check all fills (backup manual trigger)
 
 ## File Structure
 

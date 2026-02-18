@@ -94,22 +94,53 @@ export ETRADE_USE_SANDBOX=true   # Sandbox
 
 ---
 
-### Issue 5: Profit Target Not Placing
+### Issue 5: Quote Shows Wrong Symbol (GOOG)
 
 **Symptoms:**
-- Placed order with profit target
-- Click "Check Fills" but no profit order placed
+- Request quote for SOXL, AAPL, etc.
+- UI shows GOOG with Google Inc data
 
 **Root Cause:**
-- Opening order not yet executed/filled
-- Server restarted (pending orders lost)
+E*TRADE Sandbox API returns old test data (GOOG from 2012) for any symbol requested.
 
 **Solution:**
-1. Wait for opening order to be executed
-2. Click "Check Fills" again
-3. If server restarted, profit target info was lost
+This is expected sandbox behavior. The UI now displays the requested symbol, not the returned symbol. The quote data (bid/ask/last) is still simulated sandbox data.
 
-**Future Improvement:** Migrate pending orders to Redis for persistence.
+For real quotes, switch to production mode by setting `ETRADE_USE_SANDBOX=false`.
+
+---
+
+### Issue 6: Profit Order Not Placed / Timeout
+
+**Symptoms:**
+- Order placed with profit target
+- No profit order created
+- Order cancelled after timeout
+
+**Root Cause:**
+- Opening order not filled within timeout period
+- Sandbox orders may not fill immediately (or at all)
+
+**Solution:**
+1. Check the Order Status card for real-time status
+2. Increase timeout if needed (default 15s)
+3. Sandbox market orders may not fill - this is a sandbox limitation
+
+**Note:** In production, market orders typically fill instantly during market hours.
+
+---
+
+### Issue 7: Fill Price Shows as 0
+
+**Symptoms:**
+- Order filled but profit order has strange price
+- Fill price reported as 0 or missing
+
+**Root Cause:**
+E*TRADE API may not always include `executedPrice` in order details.
+
+**Solution:**
+The system defaults to 0 if fill price unavailable. In sandbox, this is common. In production, fill prices are typically available.
 
 ---
 
