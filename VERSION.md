@@ -1,13 +1,14 @@
 # E*TRADE Trading System - Version History
 
-## Current Version: v1.0.0-working
+## Current Version: v1.1.0-order-placement-working
 
-**Status: FULLY WORKING**
+**Status: FULLY WORKING - Order Placement Confirmed**
 
-**Git Tag:** `v1.0.0-working`
-**Commit:** `3664ab7`
-**Date:** 2026-02-15
+**Git Tag:** `v1.1.0-order-placement-working`
+**Commit:** `666ef5c`
+**Date:** 2026-02-18
 **Deployed At:** https://web-production-9f73cd.up.railway.app
+**Deployment Marker:** `FIX4-2026-02-18-PREVIEWIDS-WRAPPER`
 
 ---
 
@@ -15,44 +16,62 @@
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| OAuth 1.0a Authentication | WORKING | Production mode |
-| Account List | WORKING | Shows all accounts |
-| Account Balance | WORKING | Net value, cash, buying power |
-| Portfolio Positions | WORKING | Shows holdings with P&L |
-| Market Quotes | WORKING | Real-time quotes with bid/ask |
-| Order Placement UI | WORKING | Preview and place orders |
+| OAuth 1.0a Authentication | ✅ WORKING | Production mode |
+| Account List | ✅ WORKING | Shows all accounts |
+| Account Balance | ✅ WORKING | Net value, cash, buying power |
+| Portfolio Positions | ✅ WORKING | Shows holdings with P&L |
+| Market Quotes | ✅ WORKING | Real-time quotes with bid/ask |
+| Order Preview | ✅ WORKING | Preview before place |
+| Order Placement | ✅ WORKING | **FIXED 2026-02-18** |
 
 ---
 
-## UI Confirmation (2026-02-15)
+## Success Confirmation (2026-02-18)
 
+### Order Placed Successfully
 ```
-E*TRADE Stock Trading
-PRODUCTION
-Connected
+Symbol: SOXL
+Action: BUY
+Quantity: 1
+Type: LIMIT
+Limit Price: $65.43
+Order ID: 36
+Message: Order placed successfully
+```
 
-Authentication
-Authenticated
-Token expires: 2026-02-16 17:57:57 UTC
-
-Account: 133368516 - Roth IRA
-Net Account Value: $380,729.24
-Cash Available: $156,429.24
-Buying Power: $156,429.24
-
-Positions: TLT x 2500 ($-37,399.00)
-
-Market Quote: AAPL
-Price: $255.78 (-5.95 / -2.27%)
-Bid: $255.30 x 100
-Ask: $255.38 x 400
-Volume: 56,290,673
-Day Range: 255.45 - 262.23
+### Railway Log Evidence
+```
+DEPLOYMENT MARKER: FIX4-2026-02-18-PREVIEWIDS-WRAPPER
+FULL PLACE ORDER PAYLOAD:
+<PlaceOrderRequest>
+    <PreviewIds><previewId>169280196200</previewId></PreviewIds>
+    <orderType>EQ</orderType>
+    <clientOrderId>2255377809</clientOrderId>
+    ...
+</PlaceOrderRequest>
+Response Status: 200
+PlaceOrderResponse received with Order ID: 36
 ```
 
 ---
 
 ## Key Technical Details
+
+### Order Placement XML Format (CRITICAL)
+
+E*TRADE requires the `<PreviewIds>` wrapper around `<previewId>`:
+
+```xml
+<!-- CORRECT Format - Required for order placement -->
+<PlaceOrderRequest>
+    <PreviewIds><previewId>169280196200</previewId></PreviewIds>
+    <orderType>EQ</orderType>
+    <clientOrderId>2255377809</clientOrderId>
+    <Order>...</Order>
+</PlaceOrderRequest>
+```
+
+**Note:** The wrapper is `<PreviewIds>` (capital P, capital I, plural), not `<previewId>` directly.
 
 ### OAuth Implementation (Working)
 ```python
@@ -74,13 +93,6 @@ oauth = OAuth1(
 headers = {'consumerkey': consumer_key}  # lowercase!
 ```
 
-### Token Handling (Working)
-```python
-# URL-decode tokens from E*TRADE response
-from urllib.parse import unquote
-params[key] = unquote(value)
-```
-
 ---
 
 ## Rollback Instructions
@@ -89,13 +101,13 @@ If future changes break the system, rollback to this version:
 
 ```bash
 # Option 1: Checkout the tag
-git checkout v1.0.0-working
+git checkout v1.1.0-order-placement-working
 
 # Option 2: Reset to the commit
-git reset --hard 3664ab7
+git reset --hard 666ef5c
 
 # Option 3: Create new branch from tag
-git checkout -b fix-rollback v1.0.0-working
+git checkout -b fix-rollback v1.1.0-order-placement-working
 ```
 
 After rollback, force push to trigger Railway redeploy:
@@ -105,24 +117,12 @@ git push origin main --force
 
 ---
 
-## Files Modified to Get Working
+## Version History
 
-| File | Changes |
-|------|---------|
-| `etrade_client.py` | Complete OAuth rewrite with requests-oauthlib |
-| `requirements.txt` | Added requests-oauthlib==1.3.1 |
-| `server.py` | Fixed debug endpoint auth |
-| `config.py` | Added helper functions |
-
----
-
-## Previous Versions (Non-Working)
-
-| Version | Commit | Issue |
-|---------|--------|-------|
-| Initial | various | rauth library incompatible |
-| Pre-fix | 06e20f5 | OAuth signature_type error |
-| Pre-fix | a6cde55 | Token invalid/expired error |
+| Version | Date | Status | Key Changes |
+|---------|------|--------|-------------|
+| v1.1.0 | 2026-02-18 | ✅ WORKING | Fixed order placement with PreviewIds wrapper |
+| v1.0.0 | 2026-02-15 | Working | OAuth, accounts, quotes working |
 
 ---
 
@@ -130,4 +130,6 @@ git push origin main --force
 
 - Official E*TRADE Python Example: `~/Downloads/EtradePythonClient`
 - API Documentation: `ETRADE_API_REFERENCE.md`
+- Troubleshooting: `TROUBLESHOOTING.md`
 - GitHub Repo: https://github.com/rasesh6/etrade-trading
+- pyetrade Reference: `/opt/miniconda3/lib/python3.13/site-packages/pyetrade/order.py`
