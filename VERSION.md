@@ -1,11 +1,11 @@
 # E*TRADE Trading System - Version History
 
-## Current Version: v1.3.0-auto-profit
+## Current Version: v1.3.1-auto-profit
 
-**Status: WORKING - Auto Fill Checking & Offset-Based Profit Targets**
+**Status: WORKING - Auto Fill Checking & Offset-Based Profit Targets (Type Fix)**
 
-**Git Tag:** `v1.3.0-auto-profit` (to be created)
-**Commit:** `4b4a088`
+**Git Tag:** `v1.3.1-auto-profit` (to be created)
+**Commit:** `5e76a12`
 **Date:** 2026-02-18
 **Deployed At:** https://web-production-9f73cd.up.railway.app
 **Environment:** PRODUCTION (real trading)
@@ -23,9 +23,9 @@
 | Market Quotes | ✅ WORKING | Real quotes in production |
 | Order Preview | ✅ WORKING | Preview before place |
 | Order Placement | ✅ WORKING | FIXED 2026-02-18 |
-| Profit Target (Offset) | ✅ NEW | $ or % offset from fill price |
-| Auto Fill Checking | ✅ NEW | Polls every 2s, cancels if timeout |
-| Auto Cancel on Timeout | ✅ NEW | Cancel if not filled within timeout |
+| Profit Target (Offset) | ✅ WORKING | $ or % offset from fill price |
+| Auto Fill Checking | ✅ WORKING | Polls every 2s (FIXED v1.3.1) |
+| Auto Cancel on Timeout | ✅ WORKING | Cancel if not filled within timeout |
 
 ---
 
@@ -33,10 +33,49 @@
 
 | Version | Date | Status | Key Changes |
 |---------|------|--------|-------------|
-| v1.3.0 | 2026-02-18 | ✅ CURRENT | Offset-based profit, auto fill checking, auto-cancel, PRODUCTION mode |
+| v1.3.1 | 2026-02-18 | ✅ CURRENT | Fixed order_id type mismatch in check-fill |
+| v1.3.0 | 2026-02-18 | Working | Offset-based profit, auto fill checking, PRODUCTION mode |
 | v1.2.0 | 2026-02-18 | Working | Profit target feature, sandbox mode |
 | v1.1.0 | 2026-02-18 | Working | Fixed order placement with PreviewIds wrapper |
 | v1.0.0 | 2026-02-15 | Working | OAuth, accounts, quotes working |
+
+---
+
+## v1.3.1 - Type Mismatch Bug Fix (2026-02-18)
+
+### Bug Fixed:
+**Order ID type mismatch in check-fill endpoint**
+
+**Problem:**
+- Order ID from URL parameter: `"40"` (string)
+- Order ID stored in `_pending_profit_orders`: `40` (integer)
+- Python `in` check: `"40" in {40: ...}` returns `False`
+- Result: Profit orders never placed despite fills happening
+
+**Solution:**
+Convert both to strings for comparison before dictionary lookup.
+
+```python
+# Fixed code in server.py check_single_order_fill()
+order_id_str = str(order_id)
+matching_key = None
+for k in _pending_profit_orders.keys():
+    if str(k) == order_id_str:
+        matching_key = k
+        break
+
+if not matching_key:
+    return ...
+
+profit_order = _pending_profit_orders[matching_key]
+```
+
+### Debug Logging Added:
+- Log when check-fill is called with account_id and order_id
+- Log pending profit orders keys and their types
+- Log EXECUTED orders found
+- Log each order being checked
+- Log when order is found or not found
 
 ---
 
@@ -93,11 +132,13 @@ System is now in production mode:
 - **Production API URL:** `https://api.etrade.com`
 - **Real brokerage accounts** shown
 - **Real orders** - use with caution!
-- Market orders fill instantly during market hours
+- Market orders fill instantly during market hours (9:30 AM - 4:00 PM ET)
+- **Extended hours**: Must use LIMIT orders (market orders not supported)
 
 To switch back to sandbox:
-1. `railway variables set ETRADE_USE_SANDBOX=true`
-2. Or via Railway dashboard
+```bash
+railway variables set ETRADE_USE_SANDBOX=true
+```
 
 ---
 
@@ -118,6 +159,19 @@ E*TRADE requires the `<PreviewIds>` wrapper around `<previewId>`:
 ```
 
 **Note:** The wrapper is `<PreviewIds>` (capital P, capital I, plural), not `<previewId>` directly.
+
+### Order ID Types (CRITICAL)
+
+E*TRADE API returns order IDs as **integers**. When comparing:
+- URL parameters are **strings**
+- Dictionary keys may be **integers**
+- Always convert to same type before comparison
+
+```python
+# Safe comparison
+if str(url_order_id) == str(stored_order_id):
+    # match!
+```
 
 ### OAuth Implementation (Working)
 ```python
@@ -143,6 +197,7 @@ headers = {'consumerkey': consumer_key}  # lowercase!
 
 Currently stored in memory (`_pending_profit_orders` dict in server.py):
 - Lost on server restart
+- Keys are integers (from E*TRADE API response)
 - For production, should migrate to Redis
 
 ---
@@ -177,6 +232,16 @@ railway whoami
 If future changes break the system, rollback:
 
 ```bash
+cd ~/Projects/etrade
+
+# Rollback to v1.3.1 (type fix for profit orders)
+git checkout 5e76a12
+git push origin main --force
+
+# Rollback to v1.3.0 (offset-based profit)
+git checkout 4b4a088
+git push origin main --force
+
 # Rollback to v1.2.0 (profit target version)
 git checkout dd8831f
 git push origin main --force
@@ -194,6 +259,14 @@ git push origin main --force
 |-------------|-----|----------|
 | Sandbox | `8a18ff810b153dfd5d9ddce27667d63c` | Testing (simulated) |
 | Production | `353ce1949c42c71cec4785343aa36539` | Real trading (CURRENT) |
+
+---
+
+## Known Limitations
+
+1. **Extended Hours Trading**: Market orders not supported - must use LIMIT orders
+2. **Pending Profit Orders**: Stored in memory, lost on server restart
+3. **Fill Monitoring**: Frontend-based, stops if browser is closed
 
 ---
 

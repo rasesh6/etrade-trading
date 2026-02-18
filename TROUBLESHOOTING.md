@@ -1,7 +1,7 @@
 # E*TRADE Trading System - Troubleshooting Guide
 
 > **Last Updated:** 2026-02-18
-> **Current Version:** v1.3.0-auto-profit
+> **Current Version:** v1.3.1-auto-profit
 > **Environment:** PRODUCTION
 > **Purpose:** Quick reference for debugging issues in future sessions
 
@@ -42,7 +42,7 @@ railway whoami
 ### Check Recent Logs
 Look for deployment markers in Railway logs:
 - `FIX4-2026-02-18-PREVIEWIDS-WRAPPER` - Order placement fix
-- `v1.3.0-auto-profit` - Current version
+- `v1.3.0-auto-profit` - Offset-based profit feature
 
 ---
 
@@ -59,8 +59,6 @@ E*TRADE Sandbox uses simulated test accounts, not your real brokerage accounts.
 
 **Solution:**
 This is expected sandbox behavior. To see real accounts:
-1. Set `ETRADE_USE_SANDBOX=false` in Railway environment
-2. Railway will redeploy with production API
 ```bash
 # Via Railway CLI
 railway variables set ETRADE_USE_SANDBOX=false
@@ -154,9 +152,7 @@ For real quotes, use production mode (`ETRADE_USE_SANDBOX=false`).
 **Solution:**
 1. Check the Order Status card for real-time status
 2. Increase timeout if needed (default 15s, max 60s)
-3. In production, market orders typically fill instantly
-
-**Note:** This is expected sandbox behavior. In production, market orders fill immediately during market hours.
+3. In production, market orders typically fill instantly during market hours
 
 ---
 
@@ -195,15 +191,89 @@ railway whoami
 
 ---
 
+### Issue 9: Profit Order Not Placed Despite Fill (CRITICAL BUG - FIXED)
+
+**Symptoms:**
+- Order fills in production
+- Check-fill polling happens every 2 seconds
+- Order cancelled after timeout
+- Profit order never placed
+
+**Root Cause:**
+Type mismatch in dictionary lookup:
+- Order ID from URL parameter: `"40"` (string)
+- Order ID stored in `_pending_profit_orders`: `40` (integer)
+- Python `in` check: `"40" in {40: ...}` returns `False`
+
+**Solution (commit `5e76a12`):**
+```python
+# BEFORE (broken)
+if order_id not in _pending_profit_orders:
+    profit_order = _pending_profit_orders[order_id]
+
+# AFTER (fixed)
+order_id_str = str(order_id)
+matching_key = None
+for k in _pending_profit_orders.keys():
+    if str(k) == order_id_str:
+        matching_key = k
+        break
+
+if not matching_key:
+    return ...
+
+profit_order = _pending_profit_orders[matching_key]
+```
+
+**File:** `server.py` function `check_single_order_fill()`
+
+---
+
+### Issue 10: Extended Hours Trading - Market Orders Don't Fill
+
+**Symptoms:**
+- Market order placed but doesn't fill
+- Order cancelled after timeout
+- E*TRADE shows order as "being executed"
+
+**Root Cause:**
+E*TRADE requires LIMIT orders for extended hours trading. Market orders are not supported outside regular market hours.
+
+**Solution:**
+Use LIMIT orders during extended hours:
+1. Set Order Type to "LIMIT"
+2. Set limit price near current bid/ask
+3. The order will fill if price matches
+
+**Note:** Regular market hours are 9:30 AM - 4:00 PM ET.
+
+---
+
+### Issue 11: Order Cancel Fails with "being executed"
+
+**Symptoms:**
+- Cancel order returns error 5001
+- "This order is currently being executed or rejected. It cannot be cancelled."
+
+**Root Cause:**
+The order is actively being filled by E*TRADE. This error means the order DID fill (or is filling).
+
+**Solution:**
+This is actually a success case! The order filled before the cancel could process. The check-fill logic should detect this and place the profit order.
+
+**Debugging:** Check Railway logs for the fill detection and profit order placement.
+
+---
+
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `server.py` | Flask web server, API endpoints |
+| `server.py` | Flask web server, API endpoints, profit order logic |
 | `etrade_client.py` | E*TRADE API wrapper, OAuth, order logic |
 | `token_manager.py` | Redis token storage |
 | `config.py` | Credentials and configuration |
-| `static/js/app.js` | Frontend logic, fill monitoring |
+| `static/js/app.js` | Frontend logic, fill monitoring (polls every 2s) |
 | `templates/index.html` | Trading UI |
 | `VERSION.md` | Current version and features |
 | `ETRADE_API_REFERENCE.md` | Complete API documentation |
@@ -233,10 +303,10 @@ if "previewId" in kwargs:
 ## Deployment Checklist
 
 1. Make code changes
-2. Update deployment marker in `etrade_client.py`
+2. Update deployment marker in `etrade_client.py` (if relevant)
 3. Commit with descriptive message
 4. Push to main branch
-5. Railway auto-deploys
+5. Railway auto-deploys (~20-30 seconds)
 6. Check logs: `railway logs --tail 30`
 7. Test order placement
 
@@ -248,16 +318,16 @@ If a fix breaks something:
 ```bash
 cd ~/Projects/etrade
 
-# Rollback to v1.3.0 (current - offset-based profit)
+# Rollback to v1.3.1 (type fix for profit orders)
+git checkout 5e76a12
+git push origin main --force
+
+# Rollback to v1.3.0 (offset-based profit)
 git checkout 4b4a088
 git push origin main --force
 
 # Rollback to v1.2.0 (absolute price profit target)
 git checkout dd8831f
-git push origin main --force
-
-# Rollback to v1.1.0 (basic order placement)
-git checkout fbc4050
 git push origin main --force
 ```
 
@@ -293,3 +363,25 @@ railway logs --tail 20
 | Service Name | web |
 | Service ID | `524166fa-7207-4399-9383-6158a833eb71` |
 | Public URL | https://web-production-9f73cd.up.railway.app |
+
+---
+
+## Session History
+
+### 2026-02-18 Session
+**Issues Fixed:**
+1. Switched from SANDBOX to PRODUCTION mode
+2. Configured Railway CLI access for direct log viewing
+3. Fixed type mismatch bug in check-fill endpoint (order_id string vs int)
+4. Documented extended hours trading limitation (must use LIMIT orders)
+
+**Commits:**
+- `4d5d945` - Documentation update for production mode
+- `c7da7b1` - Debug logging for check-fill endpoint
+- `5e76a12` - Fix order_id type mismatch
+
+**Key Learnings:**
+- E*TRADE order IDs from API are integers, URL parameters are strings
+- Market orders don't work in extended hours - use LIMIT orders
+- "Order being executed" error on cancel means order filled successfully
+- Always add logging when debugging async polling issues
