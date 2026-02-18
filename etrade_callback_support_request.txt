@@ -1,0 +1,99 @@
+E*TRADE Developer Support Request - OAuth Callback URL Registration
+
+Date: February 18, 2026
+
+Subject: Request to Register OAuth Callback URL for Production API Key
+
+Dear E*TRADE Developer Support,
+
+I am writing to request assistance with registering an OAuth callback URL for my E*TRADE API application. Despite previous communications indicating the callback URL was registered, my API calls are still being rejected.
+
+---
+
+APPLICATION DETAILS:
+
+API Key (Production): 353ce1949c42c71cec4785343aa36539
+Environment: Production
+Current Configuration: oauth_acceptable_callback=oob (out-of-band/manual)
+
+---
+
+CALLBACK URL TO REGISTER:
+
+https://web-production-9f73cd.up.railway.app/api/auth/callback
+
+---
+
+PROBLEM DESCRIPTION:
+
+When attempting to obtain an OAuth request token with the callback URL parameter, E*TRADE's API returns the following error:
+
+HTTP Status: 400 Bad Request
+Error Message: oauth_problem=callback_rejected,oauth_acceptable_callback=oob
+
+This error indicates that my production API key is still configured to accept only "oob" (out-of-band) callbacks, meaning the callback URL registration has not taken effect.
+
+---
+
+TECHNICAL DETAILS OF FAILED REQUEST:
+
+Request Token URL: https://api.etrade.com/oauth/request_token
+HTTP Method: GET
+OAuth Parameters:
+  - oauth_callback: https://web-production-9f73cd.up.railway.app/api/auth/callback
+  - oauth_consumer_key: 353ce1949c42c71cec4785343aa36539
+  - oauth_signature_method: HMAC-SHA1
+
+Response Received:
+{
+  "error": "oauth_problem=callback_rejected,oauth_acceptable_callback=oob"
+}
+
+---
+
+TESTING PERFORMED:
+
+1. Tested with HTTP callback URL - REJECTED
+2. Tested with HTTPS callback URL - REJECTED
+3. Verified using production API endpoint (api.etrade.com, not apisb.etrade.com)
+4. Confirmed API key is correct (353ce1949c42c71cec4785343aa36539)
+
+---
+
+REQUEST:
+
+1. Please verify that the callback URL "https://web-production-9f73cd.up.railway.app/api/auth/callback" is registered for my production API key (353ce1949c42c71cec4785343aa36539).
+
+2. If not registered, please register this callback URL.
+
+3. If already registered, please investigate why the API continues to return "oauth_acceptable_callback=oob" and "callback_rejected" errors.
+
+4. Please confirm if there is a propagation delay after callback URL registration, and if so, how long it takes to take effect.
+
+---
+
+EXPECTED BEHAVIOR AFTER FIX:
+
+After successful callback registration, the OAuth request token call should return:
+- HTTP 200 OK
+- oauth_token and oauth_token_secret in the response
+
+Instead of the current 400 error with callback_rejected.
+
+---
+
+CONTACT INFORMATION:
+
+[Your Name]
+[Your Email]
+[Your Phone Number]
+
+Application Name: E*TRADE Trading System
+Deployment URL: https://web-production-9f73cd.up.railway.app
+
+---
+
+Thank you for your assistance with this matter. Please let me know if you need any additional information.
+
+Sincerely,
+[Your Name]

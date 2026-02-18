@@ -373,15 +373,34 @@ railway logs --tail 20
 - `oauth_problem=callback_rejected,oauth_acceptable_callback=oob`
 
 **Root Cause:**
-E*TRADE requires callback URLs to be pre-registered in the developer portal. The application is configured for `oob` (out-of-band/manual) only.
+E*TRADE requires callback URLs to be pre-registered in the developer portal. The production API key is configured for `oob` (out-of-band/manual) only.
+
+**Detailed Testing (2026-02-18):**
+
+| Test | Callback URL | Result |
+|------|--------------|--------|
+| HTTP callback | `http://web-production-9f73cd.up.railway.app/api/auth/callback` | ❌ Rejected |
+| HTTPS callback | `https://web-production-9f73cd.up.railway.app/api/auth/callback` | ❌ Rejected |
+
+Both attempts returned:
+```
+oauth_problem=callback_rejected,oauth_acceptable_callback=oob
+```
+
+**API Key Details:**
+- Production Key: `353ce1949c42c71cec4785343aa36539`
+- Request Token URL: `https://api.etrade.com/oauth/request_token`
 
 **Solution:**
-1. Go to E*TRADE developer portal
-2. Edit application settings
-3. Add callback URL: `https://web-production-9f73cd.up.railway.app/api/auth/callback`
-4. Re-apply callback auth changes (commit `3910f18`)
+Contact E*TRADE developer support to register callback URL for the production API key.
 
 **Current State:** Using manual verification code flow (oob)
+
+**Commits:**
+- `3910f18` - Initial callback auth implementation
+- `03c44c9` - Added detailed debugging
+- `36620b3` - Fixed HTTPS callback URL
+- `7a1644c` - Reverted to oob (callback still rejected)
 
 ---
 
@@ -398,8 +417,12 @@ E*TRADE requires callback URLs to be pre-registered in the developer portal. The
 - `4d5d945` - Documentation update for production mode
 - `c7da7b1` - Debug logging for check-fill endpoint
 - `5e76a12` - Fix order_id type mismatch
-- `3910f18` - Attempted callback auth (reverted)
-- `ec6b4f8` - Revert callback auth due to E*TRADE callback_rejected
+- `3910f18` - Attempted callback auth (first attempt)
+- `ec6b4f8` - Revert callback auth (first rejection)
+- `03c44c9` - Callback auth with detailed debugging
+- `36620b3` - Fixed HTTPS callback URL
+- `7a1644c` - Reverted to oob (callback still rejected)
+- `e9692f7` - Documentation for callback rejection
 
 **Key Learnings:**
 - E*TRADE order IDs from API are integers, URL parameters are strings
@@ -407,3 +430,5 @@ E*TRADE requires callback URLs to be pre-registered in the developer portal. The
 - "Order being executed" error on cancel means order filled successfully
 - Always add logging when debugging async polling issues
 - E*TRADE callback URLs must be pre-registered in developer portal
+- E*TRADE returns `oauth_acceptable_callback=oob` when callback not registered
+- Both HTTP and HTTPS callbacks rejected - registration issue, not URL format
