@@ -1,7 +1,8 @@
 # E*TRADE Trading System - Troubleshooting Guide
 
 > **Last Updated:** 2026-02-18
-> **Current Version:** v1.2.0-profit-target
+> **Current Version:** v1.3.0-auto-profit
+> **Environment:** PRODUCTION
 > **Purpose:** Quick reference for debugging issues in future sessions
 
 ---
@@ -13,13 +14,35 @@
 # Check Railway deployment health
 curl -s https://web-production-9f73cd.up.railway.app/health
 
+# Check auth status
+curl -s https://web-production-9f73cd.up.railway.app/api/auth/status | python3 -m json.tool
+
 # Check local server (if running)
 curl -s http://localhost:5000/health
+```
+
+### Railway CLI Commands
+```bash
+# Check service status
+railway status
+
+# View recent logs (50 lines)
+railway logs --tail 50
+
+# View live logs (follow)
+railway logs -f
+
+# View environment variables
+railway variables
+
+# Check authentication
+railway whoami
 ```
 
 ### Check Recent Logs
 Look for deployment markers in Railway logs:
 - `FIX4-2026-02-18-PREVIEWIDS-WRAPPER` - Order placement fix
+- `v1.3.0-auto-profit` - Current version
 
 ---
 
@@ -35,9 +58,13 @@ Look for deployment markers in Railway logs:
 E*TRADE Sandbox uses simulated test accounts, not your real brokerage accounts.
 
 **Solution:**
-This is expected behavior. Sandbox is for testing only. To see real accounts:
+This is expected sandbox behavior. To see real accounts:
 1. Set `ETRADE_USE_SANDBOX=false` in Railway environment
 2. Railway will redeploy with production API
+```bash
+# Via Railway CLI
+railway variables set ETRADE_USE_SANDBOX=false
+```
 
 ---
 
@@ -86,10 +113,13 @@ Re-authenticate through the web UI:
 **Sandbox:** `https://apisb.etrade.com` (simulated orders)
 **Production:** `https://api.etrade.com` (real orders)
 
+**Current Mode:** PRODUCTION
+
 Set via environment variable:
 ```bash
-export ETRADE_USE_SANDBOX=false  # Production
-export ETRADE_USE_SANDBOX=true   # Sandbox
+# Via Railway CLI
+railway variables set ETRADE_USE_SANDBOX=false  # Production
+railway variables set ETRADE_USE_SANDBOX=true   # Sandbox
 ```
 
 ---
@@ -104,9 +134,9 @@ export ETRADE_USE_SANDBOX=true   # Sandbox
 E*TRADE Sandbox API returns old test data (GOOG from 2012) for any symbol requested.
 
 **Solution:**
-This is expected sandbox behavior. The UI now displays the requested symbol, not the returned symbol. The quote data (bid/ask/last) is still simulated sandbox data.
+This is expected sandbox behavior. The UI displays the requested symbol, not the returned symbol.
 
-For real quotes, switch to production mode by setting `ETRADE_USE_SANDBOX=false`.
+For real quotes, use production mode (`ETRADE_USE_SANDBOX=false`).
 
 ---
 
@@ -119,14 +149,14 @@ For real quotes, switch to production mode by setting `ETRADE_USE_SANDBOX=false`
 
 **Root Cause:**
 - Opening order not filled within timeout period
-- Sandbox orders may not fill immediately (or at all)
+- In sandbox, orders may not fill at all
 
 **Solution:**
 1. Check the Order Status card for real-time status
-2. Increase timeout if needed (default 15s)
-3. Sandbox market orders may not fill - this is a sandbox limitation
+2. Increase timeout if needed (default 15s, max 60s)
+3. In production, market orders typically fill instantly
 
-**Note:** In production, market orders typically fill instantly during market hours.
+**Note:** This is expected sandbox behavior. In production, market orders fill immediately during market hours.
 
 ---
 
@@ -140,7 +170,28 @@ For real quotes, switch to production mode by setting `ETRADE_USE_SANDBOX=false`
 E*TRADE API may not always include `executedPrice` in order details.
 
 **Solution:**
-The system defaults to 0 if fill price unavailable. In sandbox, this is common. In production, fill prices are typically available.
+The system defaults to 0 if fill price unavailable. In production, fill prices are typically available immediately.
+
+---
+
+### Issue 8: Railway CLI Not Working
+
+**Symptoms:**
+- `railway` command fails
+- "Unauthorized" or "Not logged in"
+
+**Solution:**
+```bash
+# Login to Railway
+railway login
+
+# Link to project
+railway link --project "E*Trade Trading"
+
+# Verify connection
+railway status
+railway whoami
+```
 
 ---
 
@@ -148,12 +199,14 @@ The system defaults to 0 if fill price unavailable. In sandbox, this is common. 
 
 | File | Purpose |
 |------|---------|
-| `etrade_client.py` | E*TRADE API wrapper, OAuth, order logic |
 | `server.py` | Flask web server, API endpoints |
+| `etrade_client.py` | E*TRADE API wrapper, OAuth, order logic |
 | `token_manager.py` | Redis token storage |
 | `config.py` | Credentials and configuration |
+| `static/js/app.js` | Frontend logic, fill monitoring |
+| `templates/index.html` | Trading UI |
+| `VERSION.md` | Current version and features |
 | `ETRADE_API_REFERENCE.md` | Complete API documentation |
-| `ORDER_FIX_PLAN.md` | Order placement fix history |
 
 ---
 
@@ -184,7 +237,7 @@ if "previewId" in kwargs:
 3. Commit with descriptive message
 4. Push to main branch
 5. Railway auto-deploys
-6. Check logs for new deployment marker
+6. Check logs: `railway logs --tail 30`
 7. Test order placement
 
 ---
@@ -195,7 +248,11 @@ If a fix breaks something:
 ```bash
 cd ~/Projects/etrade
 
-# Rollback to v1.2.0 (profit target version)
+# Rollback to v1.3.0 (current - offset-based profit)
+git checkout 4b4a088
+git push origin main --force
+
+# Rollback to v1.2.0 (absolute price profit target)
 git checkout dd8831f
 git push origin main --force
 
@@ -209,7 +266,30 @@ git push origin main --force
 ## Session Quick Start
 
 For a new session, read these files first:
-1. `VERSION.md` - Current version and features
+1. `VERSION.md` - Current version, features, Railway CLI info
 2. `README.md` - System overview
 3. `TROUBLESHOOTING.md` (this file)
-4. `ETRADE_API_REFERENCE.md` - API details
+
+### Quick Verification Commands
+```bash
+# Health check
+curl -s https://web-production-9f73cd.up.railway.app/health
+
+# Railway status
+railway status
+
+# Recent logs
+railway logs --tail 20
+```
+
+---
+
+## Railway Project Info
+
+| Property | Value |
+|----------|-------|
+| Project Name | E*Trade Trading |
+| Project ID | `1419ac9f-57ed-49ee-8ff3-524ac3c52bf8` |
+| Service Name | web |
+| Service ID | `524166fa-7207-4399-9383-6158a833eb71` |
+| Public URL | https://web-production-9f73cd.up.railway.app |

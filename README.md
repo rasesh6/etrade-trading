@@ -4,7 +4,7 @@ A simple, efficient web-based trading interface for E*TRADE.
 
 **Live URL**: https://web-production-9f73cd.up.railway.app
 **GitHub**: https://github.com/rasesh6/etrade-trading
-**Current Version**: v1.2.0 (Sandbox Mode)
+**Current Version**: v1.3.0 (Production Mode)
 
 ## Features
 
@@ -15,6 +15,9 @@ A simple, efficient web-based trading interface for E*TRADE.
 - Market and Limit order placement
 - Limit orders with BID/ASK or manual price selection
 - **Profit Target Orders** - Auto place closing order when opening fills
+- **Offset-Based Profit** - Use $ or % offset from fill price
+- **Auto Fill Monitoring** - System polls every 2s for order fills
+- **Auto-Cancel on Timeout** - Cancel unfilled orders automatically
 - Open orders view with cancel functionality
 - Responsive dark-themed UI
 - Sandbox/Production environment toggle
@@ -29,7 +32,7 @@ pip install -r requirements.txt
 
 2. Set environment variables (or create .env file):
 ```bash
-export ETRADE_USE_SANDBOX=true
+export ETRADE_USE_SANDBOX=false  # Production mode
 export REDIS_URL=redis://localhost:6379
 ```
 
@@ -42,12 +45,25 @@ python server.py
 
 ## Railway Deployment
 
-1. Create a new Railway project
-2. Add Redis service
-3. Deploy this folder with the following environment variables:
-   - `ETRADE_USE_SANDBOX=true` (or false for production)
-   - `ETRADE_SANDBOX_KEY` and `ETRADE_SANDBOX_SECRET` (if different from defaults)
-   - `FLASK_SECRET_KEY` (random string)
+Deployed at: https://web-production-9f73cd.up.railway.app
+
+Environment variables (configured):
+- `ETRADE_USE_SANDBOX=false` - Production mode (REAL TRADING)
+- `FLASK_SECRET_KEY` - Session security
+- `REDIS_URL` - Token storage
+
+### Railway CLI Commands
+
+```bash
+# Check status
+railway status
+
+# View logs
+railway logs --tail 50
+
+# View variables
+railway variables
+```
 
 ## OAuth Flow
 
@@ -125,7 +141,7 @@ etrade/
 
 ## Important Notes
 
-1. **Sandbox Mode**: By default, the system uses E*TRADE's sandbox environment. Orders are simulated and no real transactions occur.
+1. **Production Mode**: System is currently in PRODUCTION mode. Orders are REAL and will execute actual trades.
 
 2. **Token Expiry**: E*TRADE tokens expire at midnight Eastern Time. You'll need to re-authenticate daily.
 
@@ -133,11 +149,13 @@ etrade/
 
 4. **Rate Limits**: E*TRADE has API rate limits. The system handles basic error cases.
 
+5. **Fill Monitoring**: Handled by frontend JavaScript. Closing the browser stops monitoring.
+
 ## Documentation
 
+- **VERSION.md** - Version history and current status
 - **ETRADE_API_REFERENCE.md** - Complete OAuth and API documentation
 - **TROUBLESHOOTING.md** - Common issues and solutions
-- **ORDER_FIX_PLAN.md** - Order placement fix history and status
 
 ## Security
 
@@ -145,3 +163,10 @@ etrade/
 - OAuth tokens are stored in Redis (encrypted in production)
 - HTTPS required for production deployment
 - Input validation on all endpoints
+
+## Quick Session Start
+
+For a new development session, read these files first:
+1. `VERSION.md` - Current version, features, and Railway info
+2. `README.md` - This file
+3. `TROUBLESHOOTING.md` - Common issues

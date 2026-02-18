@@ -8,7 +8,7 @@
 **Commit:** `4b4a088`
 **Date:** 2026-02-18
 **Deployed At:** https://web-production-9f73cd.up.railway.app
-**Environment:** SANDBOX (testing mode)
+**Environment:** PRODUCTION (real trading)
 
 ---
 
@@ -20,7 +20,7 @@
 | Account List | ✅ WORKING | Shows all accounts |
 | Account Balance | ✅ WORKING | Net value, cash, buying power |
 | Portfolio Positions | ✅ WORKING | Shows holdings with P&L |
-| Market Quotes | ✅ WORKING | Note: Sandbox returns GOOG for all symbols |
+| Market Quotes | ✅ WORKING | Real quotes in production |
 | Order Preview | ✅ WORKING | Preview before place |
 | Order Placement | ✅ WORKING | FIXED 2026-02-18 |
 | Profit Target (Offset) | ✅ NEW | $ or % offset from fill price |
@@ -33,7 +33,7 @@
 
 | Version | Date | Status | Key Changes |
 |---------|------|--------|-------------|
-| v1.3.0 | 2026-02-18 | ✅ CURRENT | Offset-based profit, auto fill checking, auto-cancel |
+| v1.3.0 | 2026-02-18 | ✅ CURRENT | Offset-based profit, auto fill checking, auto-cancel, PRODUCTION mode |
 | v1.2.0 | 2026-02-18 | Working | Profit target feature, sandbox mode |
 | v1.1.0 | 2026-02-18 | Working | Fixed order placement with PreviewIds wrapper |
 | v1.0.0 | 2026-02-15 | Working | OAuth, accounts, quotes working |
@@ -79,104 +79,25 @@
    - Order cancelled automatically
 ```
 
----
-
-## Previous: v1.2.0 - Profit Target Feature (2026-02-18)
-
-### New Feature: Profit Target Orders
-
-Automatically places a closing limit order when the opening order fills.
-
-**Workflow:**
-1. Place BUY/SELL order with profit target price enabled
-2. System stores pending profit order (in memory)
-3. Click "Check Fills & Place Profit Orders" button
-4. System checks executed orders and places profit orders
-
-**UI Components Added:**
-- "Add Profit Target" checkbox in order form
-- Profit Price input field
-- "Pending Profit Orders" section
-- "Check Fills & Place Profit Orders" button
-
-**Example:**
-```
-Opening: BUY 100 AAPL @ Market
-Profit Target: $180
-
-After fill → SELL 100 AAPL @ $180 LIMIT is placed
-```
-
-**Git Tag:** `v1.2.0-profit-target` (to be created)
-**Commit:** `dd8831f`
-**Date:** 2026-02-18
-**Deployed At:** https://web-production-9f73cd.up.railway.app
-**Environment:** SANDBOX (testing mode)
+### Production Mode (Enabled 2026-02-18)
+- Switched from sandbox to production environment
+- Real market quotes for requested symbols
+- Real order execution with actual fills
+- Production API key: `353ce1949c42c71cec4785343aa36539`
 
 ---
 
-## Confirmed Working Features
+## Current Environment: PRODUCTION
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| OAuth 1.0a Authentication | ✅ WORKING | Sandbox/Production |
-| Account List | ✅ WORKING | Shows all accounts |
-| Account Balance | ✅ WORKING | Net value, cash, buying power |
-| Portfolio Positions | ✅ WORKING | Shows holdings with P&L |
-| Market Quotes | ✅ WORKING | Real-time quotes with bid/ask |
-| Order Preview | ✅ WORKING | Preview before place |
-| Order Placement | ✅ WORKING | FIXED 2026-02-18 |
-| Profit Target Orders | ✅ NEW | Auto place profit order on fill |
+System is now in production mode:
+- **Production API URL:** `https://api.etrade.com`
+- **Real brokerage accounts** shown
+- **Real orders** - use with caution!
+- Market orders fill instantly during market hours
 
----
-
-## Version History
-
-| Version | Date | Status | Key Changes |
-|---------|------|--------|-------------|
-| v1.2.0 | 2026-02-18 | ✅ CURRENT | Profit target feature, sandbox mode |
-| v1.1.0 | 2026-02-18 | Working | Fixed order placement with PreviewIds wrapper |
-| v1.0.0 | 2026-02-15 | Working | OAuth, accounts, quotes working |
-
----
-
-## v1.2.0 - Profit Target Feature (2026-02-18)
-
-### New Feature: Profit Target Orders
-
-Automatically places a closing limit order when the opening order fills.
-
-**Workflow:**
-1. Place BUY/SELL order with profit target price enabled
-2. System stores pending profit order (in memory)
-3. Click "Check Fills & Place Profit Orders" button
-4. System checks executed orders and places profit orders
-
-**UI Components Added:**
-- "Add Profit Target" checkbox in order form
-- Profit Price input field
-- "Pending Profit Orders" section
-- "Check Fills & Place Profit Orders" button
-
-**Example:**
-```
-Opening: BUY 100 AAPL @ Market
-Profit Target: $180
-
-After fill → SELL 100 AAPL @ $180 LIMIT is placed
-```
-
-### Current Environment: SANDBOX
-
-System is currently in sandbox mode for testing:
-- **Sandbox API URL:** `https://apisb.etrade.com`
-- **Sandbox accounts are simulated** (not your real accounts)
-- Orders are simulated (no real trades)
-
-To switch to production:
-1. Go to Railway dashboard
-2. Change `ETRADE_USE_SANDBOX` to `false`
-3. Railway will redeploy
+To switch back to sandbox:
+1. `railway variables set ETRADE_USE_SANDBOX=true`
+2. Or via Railway dashboard
 
 ---
 
@@ -226,6 +147,31 @@ Currently stored in memory (`_pending_profit_orders` dict in server.py):
 
 ---
 
+## Railway CLI Access (Configured 2026-02-18)
+
+Railway CLI is configured and working. Useful commands:
+
+```bash
+# Check service status
+railway status
+
+# View recent logs
+railway logs --tail 50
+
+# View all environment variables
+railway variables
+
+# Check auth status
+railway whoami
+```
+
+**Project Info:**
+- Project ID: `1419ac9f-57ed-49ee-8ff3-524ac3c52bf8`
+- Service ID: `524166fa-7207-4399-9383-6158a833eb71`
+- Service Name: `web`
+
+---
+
 ## Rollback Instructions
 
 If future changes break the system, rollback:
@@ -247,7 +193,7 @@ git push origin main --force
 | Environment | Key | Used For |
 |-------------|-----|----------|
 | Sandbox | `8a18ff810b153dfd5d9ddce27667d63c` | Testing (simulated) |
-| Production | `353ce1949c42c71cec4785343aa36539` | Real trading |
+| Production | `353ce1949c42c71cec4785343aa36539` | Real trading (CURRENT) |
 
 ---
 
