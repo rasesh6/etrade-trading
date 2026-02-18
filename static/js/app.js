@@ -7,6 +7,7 @@ let currentSide = 'BUY';
 let currentPriceSource = 'manual';
 let currentAccountIdKey = null;
 let quoteData = null;
+let fillCheckInterval = null;
 
 // ==================== INITIALIZATION ====================
 
@@ -208,9 +209,6 @@ async function loadAccountInfo() {
 
     // Load open orders
     loadOrders(currentAccountIdKey);
-
-    // Load pending profit orders
-    loadPendingProfits();
 }
 
 async function loadBalance(accountIdKey) {
@@ -325,7 +323,9 @@ async function fetchQuote() {
 
         if (data.success) {
             quoteData = data.quote;
-            displayQuote(data.quote);
+            // IMPORTANT: Use the REQUESTED symbol, not the returned symbol (sandbox returns GOOG for everything)
+            quoteData.display_symbol = symbol;
+            displayQuote(data.quote, symbol);
 
             // Auto-fill order symbol
             document.getElementById('order-symbol').value = symbol;
@@ -339,8 +339,9 @@ async function fetchQuote() {
     }
 }
 
-function displayQuote(quote) {
-    document.getElementById('q-symbol').textContent = quote.symbol;
+function displayQuote(quote, requestedSymbol) {
+    // Use requested symbol for display (sandbox returns wrong symbol)
+    document.getElementById('q-symbol').textContent = requestedSymbol;
     document.getElementById('q-last').textContent = formatCurrency(quote.last_price);
 
     // Change
@@ -437,71 +438,17 @@ function toggleProfitTarget() {
     inputDiv.style.display = enabled ? 'block' : 'none';
 }
 
-async function loadPendingProfits() {
-    try {
-        const response = await fetch('/api/orders/pending-profits');
-        const data = await response.json();
+function updateProfitLabel() {
+    const offsetType = document.getElementById('profit-offset-type').value;
+    const label = document.getElementById('profit-offset-label');
+    const prefix = document.getElementById('profit-offset-prefix');
 
-        const container = document.getElementById('pending-profits-list');
-
-        if (data.success && data.pending_profits && data.pending_profits.length > 0) {
-            container.innerHTML = data.pending_profits.map(item => `
-                <div class="pending-profit-item">
-                    <div>
-                        <span class="position-symbol">${item.symbol}</span>
-                        <span class="position-qty">x ${item.quantity}</span>
-                        <span class="profit-price">@ $${item.profit_price}</span>
-                    </div>
-                    <div class="small-text">${item.status || 'Waiting for fill'}</div>
-                </div>
-            `).join('');
-        } else {
-            container.innerHTML = '<p class="placeholder-text">No pending profit orders</p>';
-        }
-    } catch (error) {
-        console.error('Load pending profits failed:', error);
-    }
-}
-
-async function checkFillsAndPlaceProfits() {
-    if (!currentAccountIdKey) {
-        alert('Please select an account first');
-        return;
-    }
-
-    try {
-        const response = await fetch('/api/orders/check-fills', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                account_id_key: currentAccountIdKey
-            })
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-            let message = `Processed ${data.checked_count || 0} pending orders.\n`;
-            message += `Placed ${data.placed_count || 0} profit orders.`;
-
-            if (data.placed_orders && data.placed_orders.length > 0) {
-                message += '\n\nProfit orders placed:\n';
-                data.placed_orders.forEach(order => {
-                    message += `${order.symbol} x${order.quantity} @ $${order.limit_price}\n`;
-                });
-            }
-
-            alert(message);
-
-            // Refresh the pending profits list and orders
-            loadPendingProfits();
-            loadOrders(currentAccountIdKey);
-        } else {
-            alert('Check failed: ' + data.error);
-        }
-    } catch (error) {
-        console.error('Check fills failed:', error);
-        alert('Check failed: ' + error.message);
+    if (offsetType === 'dollar') {
+        label.textContent = 'Offset ($)';
+        prefix.textContent = '$';
+    } else {
+        label.textContent = 'Offset (%)';
+        prefix.textContent = '%';
     }
 }
 
@@ -588,10 +535,12 @@ async function placeOrder() {
 
     // Check for profit target
     const enableProfitTarget = document.getElementById('enable-profit-target').checked;
-    const profitPrice = enableProfitTarget ? parseFloat(document.getElementById('profit-price').value) || 0 : null;
+    const profitOffsetType = enableProfitTarget ? document.getElementById('profit-offset-type').value : null;
+    const profitOffset = enableProfitTarget ? parseFloat(document.getElementById('profit-offset').value) || 0 : null;
+    const fillTimeout = enableProfitTarget ? parseInt(document.getElementById('fill-timeout').value) || 15 : null;
 
-    if (enableProfitTarget && profitPrice <= 0) {
-        alert('Please enter a valid profit target price');
+    if (enableProfitTarget && profitOffset <= 0) {
+        alert('Please enter a valid profit offset');
         return;
     }
 
@@ -612,7 +561,9 @@ async function placeOrder() {
                 priceType: orderType,
                 limitPrice: limitPrice,
                 limitPriceSource: orderType === 'LIMIT' ? currentPriceSource : null,
-                profit_price: profitPrice  // Include profit target
+                profit_offset_type: profitOffsetType,
+                profit_offset: profitOffset,
+                fill_timeout: fillTimeout
             })
         });
 
@@ -621,7 +572,19 @@ async function placeOrder() {
         if (data.success) {
             showResponse('success', 'Order Placed', data.order);
             loadOrders(currentAccountIdKey);  // Refresh orders list
-            loadPendingProfits();  // Refresh pending profits
+
+            // If profit target enabled, start monitoring
+            if (enableProfitTarget && data.order.order_id) {
+                startOrderMonitoring(
+                    data.order.order_id,
+                    symbol,
+                    quantity,
+                    currentSide,
+                    profitOffsetType,
+                    profitOffset,
+                    fillTimeout
+                );
+            }
         } else {
             showResponse('error', 'Order Failed', { error: data.error });
         }
@@ -633,6 +596,79 @@ async function placeOrder() {
 
     btn.disabled = false;
     btn.textContent = originalText;
+}
+
+// ==================== ORDER MONITORING (AUTOMATIC FILL CHECK) ====================
+
+function startOrderMonitoring(orderId, symbol, quantity, side, offsetType, offset, timeout) {
+    const statusCard = document.getElementById('order-status-card');
+    const statusContent = document.getElementById('order-status-content');
+
+    statusCard.style.display = 'block';
+
+    let elapsed = 0;
+    const pollInterval = 2000; // Check every 2 seconds
+
+    // Clear any existing interval
+    if (fillCheckInterval) {
+        clearInterval(fillCheckInterval);
+    }
+
+    updateOrderStatus(`Waiting for ${symbol} order to fill... (${elapsed}/${timeout}s)`);
+
+    fillCheckInterval = setInterval(async () => {
+        elapsed += pollInterval / 1000;
+
+        if (elapsed >= timeout) {
+            clearInterval(fillCheckInterval);
+            updateOrderStatus(`Timeout reached. Cancelling order...`);
+
+            // Cancel the order
+            try {
+                await fetch(`/api/orders/${currentAccountIdKey}/${orderId}/cancel`, {
+                    method: 'POST'
+                });
+                updateOrderStatus(`Order cancelled (not filled within ${timeout}s)`, 'error');
+                loadOrders(currentAccountIdKey);
+            } catch (e) {
+                updateOrderStatus(`Failed to cancel order: ${e.message}`, 'error');
+            }
+            return;
+        }
+
+        updateOrderStatus(`Waiting for ${symbol} order to fill... (${elapsed}/${timeout}s)`);
+
+        // Check if order is filled
+        try {
+            const response = await fetch(`/api/orders/${currentAccountIdKey}/check-fill/${orderId}`);
+            const data = await response.json();
+
+            if (data.success && data.filled) {
+                clearInterval(fillCheckInterval);
+
+                if (data.profit_order_placed) {
+                    updateOrderStatus(`✅ Order filled @ ${formatCurrency(data.fill_price)}. Profit order placed @ ${formatCurrency(data.profit_price)}`, 'success');
+                } else {
+                    updateOrderStatus(`✅ Order filled @ ${formatCurrency(data.fill_price)}`, 'success');
+                }
+
+                loadOrders(currentAccountIdKey);
+                loadPositions(currentAccountIdKey);
+            }
+        } catch (e) {
+            console.error('Fill check failed:', e);
+        }
+
+    }, pollInterval);
+}
+
+function updateOrderStatus(message, type = 'info') {
+    const statusContent = document.getElementById('order-status-content');
+    let className = '';
+    if (type === 'success') className = 'success-text';
+    if (type === 'error') className = 'error-text';
+
+    statusContent.innerHTML = `<p class="${className}">${message}</p>`;
 }
 
 // ==================== RESPONSE DISPLAY ====================
@@ -663,6 +699,9 @@ function showResponse(type, title, data) {
         }
         if (data.estimated_total) {
             html += `<div class="response-row"><span>Est. Total:</span><span>${formatCurrency(data.estimated_total)}</span></div>`;
+        }
+        if (data.profit_offset) {
+            html += `<div class="response-row"><span>Profit Target:</span><span>${data.profit_offset_type === 'percent' ? data.profit_offset + '%' : '$' + data.profit_offset} offset</span></div>`;
         }
         html += `<div class="response-row"><span>Message:</span><span>${data.message || 'Success'}</span></div>`;
     }

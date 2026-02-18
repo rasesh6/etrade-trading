@@ -27,7 +27,7 @@ app.secret_key = SECRET_KEY
 _request_tokens = {}
 
 # Store pending profit orders (in memory - will be lost on restart)
-# Format: {order_id: {symbol, quantity, profit_price, account_id_key, opening_side}}
+# Format: {order_id: {symbol, quantity, profit_offset_type, profit_offset, account_id_key, opening_side}}
 _pending_profit_orders = {}
 
 
@@ -389,8 +389,10 @@ def place_order():
         limit_price = data.get('limitPrice')
         limit_price_source = data.get('limitPriceSource', 'manual')
 
-        # Profit target price (optional)
-        profit_price = data.get('profit_price')
+        # Profit target offset (optional)
+        profit_offset_type = data.get('profit_offset_type')  # 'dollar' or 'percent'
+        profit_offset = data.get('profit_offset')  # numeric offset value
+        fill_timeout = data.get('fill_timeout', 15)  # seconds to wait for fill
 
         # Fetch price if using BID/ASK
         if price_type == 'LIMIT' and limit_price_source in ['bid', 'ask']:
@@ -454,18 +456,19 @@ def place_order():
 
         order_id = result.get('order_id')
 
-        # If profit price is set, store the pending profit order
-        if profit_price and order_id:
+        # If profit offset is set, store the pending profit order
+        if profit_offset_type and profit_offset and order_id:
             _pending_profit_orders[order_id] = {
                 'symbol': symbol,
                 'quantity': quantity,
-                'profit_price': profit_price,
+                'profit_offset_type': profit_offset_type,  # 'dollar' or 'percent'
+                'profit_offset': float(profit_offset),
                 'account_id_key': account_id_key,
                 'opening_side': side,
                 'status': 'waiting',
                 'created_at': datetime.utcnow().isoformat()
             }
-            logger.info(f"Stored pending profit order for order_id={order_id}, profit_price={profit_price}")
+            logger.info(f"Stored pending profit order for order_id={order_id}, offset={profit_offset} ({profit_offset_type})")
 
         return jsonify({
             'success': True,
@@ -478,7 +481,8 @@ def place_order():
                 'limit_price': limit_price,
                 'estimated_commission': preview_result.get('estimated_commission'),
                 'message': result.get('message', 'Order placed successfully'),
-                'profit_target': profit_price
+                'profit_offset_type': profit_offset_type,
+                'profit_offset': profit_offset
             }
         })
 
@@ -565,7 +569,8 @@ def get_pending_profits():
             'order_id': order_id,
             'symbol': profit_order['symbol'],
             'quantity': profit_order['quantity'],
-            'profit_price': profit_order['profit_price'],
+            'profit_offset_type': profit_order['profit_offset_type'],
+            'profit_offset': profit_order['profit_offset'],
             'status': profit_order['status'],
             'created_at': profit_order.get('created_at', '')
         })
@@ -576,11 +581,141 @@ def get_pending_profits():
     })
 
 
+@app.route('/api/orders/<account_id_key>/check-fill/<order_id>')
+def check_single_order_fill(account_id_key, order_id):
+    """
+    Check if a specific order is filled and place profit order if so.
+    Called by frontend polling for automatic fill detection.
+    """
+    try:
+        client = _get_authenticated_client()
+
+        # Check if this order has a pending profit target
+        if order_id not in _pending_profit_orders:
+            return jsonify({
+                'success': True,
+                'filled': False,
+                'message': 'No profit target for this order'
+            })
+
+        profit_order = _pending_profit_orders[order_id]
+
+        if profit_order['status'] != 'waiting':
+            return jsonify({
+                'success': True,
+                'filled': False,
+                'message': f"Profit order status: {profit_order['status']}"
+            })
+
+        # Get order details to check status and fill price
+        orders = client.get_orders(account_id_key, status='EXECUTED')
+
+        order_filled = False
+        fill_price = None
+
+        for order in orders:
+            if str(order.get('orderId')) == str(order_id):
+                order_filled = True
+                # Get fill price from OrderDetail
+                if 'OrderDetail' in order:
+                    for detail in order['OrderDetail']:
+                        if detail.get('executedPrice'):
+                            fill_price = float(detail.get('executedPrice'))
+                            break
+                break
+
+        if not order_filled:
+            return jsonify({
+                'success': True,
+                'filled': False,
+                'message': 'Order not yet filled'
+            })
+
+        # Calculate profit price from fill price + offset
+        profit_offset_type = profit_order['profit_offset_type']
+        profit_offset = profit_order['profit_offset']
+
+        if profit_offset_type == 'dollar':
+            # For BUY: profit = fill + offset (sell higher)
+            # For SELL_SHORT: profit = fill - offset (buy lower)
+            if profit_order['opening_side'] in ['BUY', 'BUY_TO_COVER']:
+                profit_price = fill_price + profit_offset
+            else:
+                profit_price = fill_price - profit_offset
+        else:  # percent
+            if profit_order['opening_side'] in ['BUY', 'BUY_TO_COVER']:
+                profit_price = fill_price * (1 + profit_offset / 100)
+            else:
+                profit_price = fill_price * (1 - profit_offset / 100)
+
+        logger.info(f"Order {order_id} filled at {fill_price}, profit price calculated: {profit_price}")
+
+        # Determine closing side
+        opening_side = profit_order['opening_side']
+        if opening_side in ['BUY', 'BUY_TO_COVER']:
+            closing_side = 'SELL'
+        else:
+            closing_side = 'BUY'
+
+        # Place the profit order
+        profit_order_data = {
+            'symbol': profit_order['symbol'],
+            'quantity': profit_order['quantity'],
+            'orderAction': closing_side,
+            'priceType': 'LIMIT',
+            'orderTerm': 'GOOD_FOR_DAY',
+            'limitPrice': str(round(profit_price, 2))
+        }
+
+        try:
+            # Preview first
+            preview_result = client.preview_order(account_id_key, profit_order_data)
+            preview_id = preview_result.get('preview_id')
+
+            if preview_id:
+                # Place the profit order
+                result = client.place_order(
+                    account_id_key,
+                    profit_order_data,
+                    preview_id=preview_id,
+                    client_order_id=preview_result.get('client_order_id')
+                )
+
+                logger.info(f"Placed profit order for {profit_order['symbol']} @ ${profit_price}")
+
+                # Update status
+                _pending_profit_orders[order_id]['status'] = 'placed'
+
+                return jsonify({
+                    'success': True,
+                    'filled': True,
+                    'fill_price': fill_price,
+                    'profit_price': round(profit_price, 2),
+                    'profit_order_placed': True,
+                    'message': f"Filled at {fill_price}, profit order placed at {profit_price}"
+                })
+
+        except Exception as e:
+            logger.error(f"Failed to place profit order: {e}")
+            _pending_profit_orders[order_id]['status'] = f'error: {str(e)}'
+            return jsonify({
+                'success': True,
+                'filled': True,
+                'fill_price': fill_price,
+                'profit_order_placed': False,
+                'error': str(e)
+            })
+
+    except Exception as e:
+        logger.error(f"Check fill failed: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/orders/check-fills', methods=['POST'])
 def check_fills_and_place_profits():
     """
     Check for filled orders and place corresponding profit orders.
-    This is a manual trigger - user clicks "Check Fills" button.
+    This is a manual backup trigger - the frontend now polls automatically.
     """
     try:
         client = _get_authenticated_client()
@@ -613,12 +748,39 @@ def check_fills_and_place_profits():
 
             # Check if the opening order has been executed
             order_filled = False
+            fill_price = None
             for executed in executed_orders:
                 if str(executed.get('orderId')) == str(order_id):
                     order_filled = True
+                    # Get fill price from OrderDetail
+                    if 'OrderDetail' in executed:
+                        for detail in executed['OrderDetail']:
+                            if detail.get('executedPrice'):
+                                fill_price = float(detail.get('executedPrice'))
+                                break
                     break
 
             if order_filled:
+                # Calculate profit price from fill price + offset
+                profit_offset_type = profit_order['profit_offset_type']
+                profit_offset = profit_order['profit_offset']
+
+                # If we couldn't get fill price, use a default
+                if fill_price is None:
+                    logger.warning(f"Could not get fill price for order {order_id}, using 0")
+                    fill_price = 0
+
+                if profit_offset_type == 'dollar':
+                    if profit_order['opening_side'] in ['BUY', 'BUY_TO_COVER']:
+                        profit_price = fill_price + profit_offset
+                    else:
+                        profit_price = fill_price - profit_offset
+                else:  # percent
+                    if profit_order['opening_side'] in ['BUY', 'BUY_TO_COVER']:
+                        profit_price = fill_price * (1 + profit_offset / 100)
+                    else:
+                        profit_price = fill_price * (1 - profit_offset / 100)
+
                 # Determine closing side
                 opening_side = profit_order['opening_side']
                 if opening_side in ['BUY', 'BUY_TO_COVER']:
@@ -633,7 +795,7 @@ def check_fills_and_place_profits():
                     'orderAction': closing_side,
                     'priceType': 'LIMIT',
                     'orderTerm': 'GOOD_FOR_DAY',
-                    'limitPrice': str(profit_order['profit_price'])
+                    'limitPrice': str(round(profit_price, 2))
                 }
 
                 try:
@@ -654,14 +816,15 @@ def check_fills_and_place_profits():
                             'symbol': profit_order['symbol'],
                             'quantity': profit_order['quantity'],
                             'side': closing_side,
-                            'limit_price': profit_order['profit_price'],
+                            'fill_price': fill_price,
+                            'limit_price': round(profit_price, 2),
                             'order_id': result.get('order_id')
                         })
                         placed_count += 1
 
                         # Remove from pending
                         _pending_profit_orders[order_id]['status'] = 'placed'
-                        logger.info(f"Placed profit order for {profit_order['symbol']} @ ${profit_order['profit_price']}")
+                        logger.info(f"Placed profit order for {profit_order['symbol']} @ ${profit_price} (fill: {fill_price})")
 
                 except Exception as e:
                     logger.error(f"Failed to place profit order for {profit_order['symbol']}: {e}")
