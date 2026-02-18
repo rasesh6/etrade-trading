@@ -366,6 +366,25 @@ railway logs --tail 20
 
 ---
 
+### Issue 12: Callback OAuth Authentication Fails
+
+**Symptoms:**
+- Error when trying to use callback-based OAuth
+- `oauth_problem=callback_rejected,oauth_acceptable_callback=oob`
+
+**Root Cause:**
+E*TRADE requires callback URLs to be pre-registered in the developer portal. The application is configured for `oob` (out-of-band/manual) only.
+
+**Solution:**
+1. Go to E*TRADE developer portal
+2. Edit application settings
+3. Add callback URL: `https://web-production-9f73cd.up.railway.app/api/auth/callback`
+4. Re-apply callback auth changes (commit `3910f18`)
+
+**Current State:** Using manual verification code flow (oob)
+
+---
+
 ## Session History
 
 ### 2026-02-18 Session
@@ -379,9 +398,12 @@ railway logs --tail 20
 - `4d5d945` - Documentation update for production mode
 - `c7da7b1` - Debug logging for check-fill endpoint
 - `5e76a12` - Fix order_id type mismatch
+- `3910f18` - Attempted callback auth (reverted)
+- `ec6b4f8` - Revert callback auth due to E*TRADE callback_rejected
 
 **Key Learnings:**
 - E*TRADE order IDs from API are integers, URL parameters are strings
 - Market orders don't work in extended hours - use LIMIT orders
 - "Order being executed" error on cancel means order filled successfully
 - Always add logging when debugging async polling issues
+- E*TRADE callback URLs must be pre-registered in developer portal
