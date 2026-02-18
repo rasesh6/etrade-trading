@@ -339,9 +339,76 @@ for pair in response_text.split('&'):
 
 ---
 
+---
+
+## Order Placement API (CRITICAL)
+
+### Preview-Then-Place Flow
+
+E*TRADE **requires** a preview-then-place flow for all orders. You cannot place orders directly.
+
+```
+1. POST /v1/accounts/{accountIdKey}/orders/preview.json
+   → Returns PreviewOrderResponse with PreviewIds
+
+2. POST /v1/accounts/{accountIdKey}/orders/place.json
+   → Must include PreviewIds from step 1
+```
+
+### XML Format for Place Order (CRITICAL)
+
+**The `<PreviewIds>` wrapper is REQUIRED** - this was the root cause of Error 101/1033.
+
+**WRONG Format (causes Error 101):**
+```xml
+<PlaceOrderRequest>
+    <previewId>168321663200</previewId>
+    <orderType>EQ</orderType>
+    <clientOrderId>1234567890</clientOrderId>
+    <Order>...</Order>
+</PlaceOrderRequest>
+```
+
+**CORRECT Format:**
+```xml
+<PlaceOrderRequest>
+    <PreviewIds><previewId>168321663200</previewId></PreviewIds>
+    <orderType>EQ</orderType>
+    <clientOrderId>1234567890</clientOrderId>
+    <Order>...</Order>
+</PlaceOrderRequest>
+```
+
+**Key Points:**
+1. `<PreviewIds>` - Capital P, capital I, plural (not `previewIds` or `PreviewId`)
+2. `<previewId>` - Lowercase, inside the wrapper
+3. `clientOrderId` must match between preview and place calls
+4. All order parameters must match exactly
+
+### Reference Implementation
+
+See pyetrade library for working implementation:
+```python
+# From pyetrade/order.py lines 400-401
+if "previewId" in kwargs:
+    payload[order_type]["PreviewIds"] = {"previewId": kwargs["previewId"]}
+```
+
+Location: `/opt/miniconda3/lib/python3.13/site-packages/pyetrade/order.py`
+
+### Common Errors
+
+| Error Code | Message | Cause | Solution |
+|------------|---------|-------|----------|
+| 101/1033 | "timed out your original order request" | Missing `<PreviewIds>` wrapper | Add `<PreviewIds><previewId>...</previewId></PreviewIds>` |
+| 900 | "Invalid Preview Id" | Wrong previewId format or expired | Ensure previewId is numeric, place immediately after preview |
+
+---
+
 ## References
 
 - [E*TRADE Request Token Documentation](https://apisb.etrade.com/docs/api/authorization/request_token.html)
 - [E*TRADE Get Access Token Documentation](https://apisb.etrade.com/docs/api/authorization/get_access_token.html)
 - [E*TRADE Official Python Example](~/Downloads/EtradePythonClient/)
 - [requests-oauthlib Documentation](https://requests-oauthlib.readthedocs.io/)
+- [pyetrade Library](https://pypi.org/project/pyetrade/) - Reference implementation

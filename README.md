@@ -105,6 +105,12 @@ etrade/
 
 4. **Rate Limits**: E*TRADE has API rate limits. The system handles basic error cases.
 
+## Documentation
+
+- **ETRADE_API_REFERENCE.md** - Complete OAuth and API documentation
+- **TROUBLESHOOTING.md** - Common issues and solutions
+- **ORDER_FIX_PLAN.md** - Order placement fix history and status
+
 ## Security
 
 - API keys are stored as environment variables (never in code)
