@@ -512,14 +512,13 @@ class ETradeClient:
 
         # DEBUG: Log the full XML payload with clear marker
         logger.info("=" * 60)
-        logger.info("DEPLOYMENT MARKER: FIX3-2026-02-17-1712")
+        logger.info("DEPLOYMENT MARKER: FIX4-2026-02-18-PREVIEWIDS-WRAPPER")
         logger.info("=" * 60)
         logger.info(f"FULL PLACE ORDER PAYLOAD:\n{payload}")
         logger.info("=" * 60)
 
-        # Add delay to let E*TRADE register the preview
-        import time
-        time.sleep(1.0)  # 1 second delay
+        # NOTE: Removed delay - E*TRADE preview may have very short timeout
+        # Placing immediately after preview is more reliable
 
         headers = {
             'Content-Type': 'application/xml',
@@ -576,11 +575,12 @@ class ETradeClient:
         request_type = 'PreviewOrderRequest' if preview else 'PlaceOrderRequest'
 
         # Build PreviewIds element for place order
-        # Try simple format first
+        # CRITICAL: E*TRADE requires <PreviewIds> wrapper (capital P, capital I, plural)
+        # See pyetrade library: payload[order_type]["PreviewIds"] = {"previewId": kwargs["previewId"]}
         if preview_id:
-            # Simple format - just previewId element
-            preview_id_element = f'<previewId>{preview_id}</previewId>\n    '
-            logger.info(f"DEBUG: Using simple previewId format for preview_id={preview_id}")
+            # Correct format with PreviewIds wrapper
+            preview_id_element = f'<PreviewIds><previewId>{preview_id}</previewId></PreviewIds>\n    '
+            logger.info(f"DEBUG: Using PreviewIds wrapper format for preview_id={preview_id}")
         else:
             preview_id_element = ''
 
