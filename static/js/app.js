@@ -101,19 +101,27 @@ async function startLogin() {
     btn.textContent = 'Connecting...';
 
     // Open popup SYNCHRONOUSLY during click event to avoid popup blocker
-    const popup = window.open('', 'etrade-auth', 'width=800,height=600,scrollbars=yes,resizable=yes');
+    const popup = window.open('about:blank', 'etrade-auth', 'width=800,height=600,scrollbars=yes,resizable=yes');
 
     try {
         const response = await fetch('/api/auth/login', { method: 'POST' });
         const data = await response.json();
 
         if (data.success) {
-            // Redirect popup to E*TRADE authorization URL
-            if (popup) {
-                popup.location.href = data.authorize_url;
+            // Write redirect page to popup (more reliable than setting location.href)
+            if (popup && !popup.closed) {
+                popup.document.write(
+                    '<html><head><title>Redirecting to E*TRADE...</title></head>' +
+                    '<body style="font-family:Arial,sans-serif;text-align:center;padding:50px;">' +
+                    '<h3>Redirecting to E*TRADE...</h3>' +
+                    '<p>If not redirected, <a href="' + data.authorize_url + '" target="_blank">click here</a></p>' +
+                    '<script>window.location.href = "' + data.authorize_url + '";<\/script>' +
+                    '</body></html>'
+                );
+                popup.document.close();
             }
 
-            // Prompt user for verification code
+            // Prompt user for verification code (this blocks until user responds)
             const verifierCode = prompt(
                 'A popup window opened for E*TRADE authorization.\n\n' +
                 '1. Log in to E*TRADE and accept the authorization\n' +
@@ -146,18 +154,18 @@ async function startLogin() {
                 alert('Verification code is required. Please try again.');
             }
 
-            // Close popup if still open
+            // Close popup after user is done
             if (popup && !popup.closed) {
                 popup.close();
             }
         } else {
-            if (popup) popup.close();
+            if (popup && !popup.closed) popup.close();
             alert('Failed to start login: ' + data.error);
         }
 
     } catch (error) {
         console.error('Start login failed:', error);
-        if (popup) popup.close();
+        if (popup && !popup.closed) popup.close();
         alert('Failed to start login: ' + error.message);
     }
 
