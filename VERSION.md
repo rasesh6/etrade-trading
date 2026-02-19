@@ -8,6 +8,7 @@
 **Date:** 2026-02-19
 **Deployed At:** https://web-production-9f73cd.up.railway.app
 **Environment:** PRODUCTION (real trading)
+**Timezone:** All times in **CST (Central Standard Time)** unless otherwise noted
 
 ---
 

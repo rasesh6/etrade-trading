@@ -6,15 +6,21 @@ Handles OAuth 1.0a token lifecycle:
 - Access token exchange
 - Token persistence in Redis
 - Automatic renewal before expiration
+
+NOTE: All times displayed in CST (Central Standard Time)
 """
 import json
 import time
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import redis
 from config import REDIS_URL, TOKEN_KEY_PREFIX, TOKEN_EXPIRY_HOURS
 
 logger = logging.getLogger(__name__)
+
+# CST timezone (Central Standard Time = UTC-6, CDT = UTC-5)
+# Using fixed offset for simplicity (CST = UTC-6)
+CST_OFFSET = timedelta(hours=-6)
 
 
 class TokenManager:
@@ -206,10 +212,15 @@ class TokenManager:
         is_expired = datetime.utcnow() > expires_at
         time_remaining = expires_at - datetime.utcnow()
 
+        # Convert UTC to CST for display
+        cst_tz = timezone(CST_OFFSET)
+        expires_at_cst = expires_at.replace(tzinfo=timezone.utc).astimezone(cst_tz)
+        created_at_cst = created_at.replace(tzinfo=timezone.utc).astimezone(cst_tz)
+
         return {
             'authenticated': not is_expired,
-            'created_at': created_at.strftime('%Y-%m-%d %H:%M:%S UTC'),
-            'expires_at': expires_at.strftime('%Y-%m-%d %H:%M:%S UTC'),
+            'created_at': created_at_cst.strftime('%Y-%m-%d %H:%M:%S CST'),
+            'expires_at': expires_at_cst.strftime('%Y-%m-%d %H:%M:%S CST'),
             'time_remaining': str(time_remaining).split('.')[0] if not is_expired else 'Expired',
             'message': 'Active' if not is_expired else 'Expired - please re-authenticate'
         }

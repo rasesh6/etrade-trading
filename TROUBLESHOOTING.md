@@ -3,6 +3,7 @@
 > **Last Updated:** 2026-02-19
 > **Current Version:** v1.3.3-auto-profit
 > **Environment:** PRODUCTION
+> **Timezone:** All times in **CST (Central Standard Time)** unless otherwise noted
 > **Purpose:** Quick reference for debugging issues in future sessions
 
 ---
