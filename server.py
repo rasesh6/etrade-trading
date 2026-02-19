@@ -61,26 +61,18 @@ def auth_status():
 def start_login():
     """Start OAuth login flow - get authorization URL"""
     try:
-        # Determine callback URL based on USE_SANDBOX setting
-        # For production, use the Railway URL
-        callback_url = request.host_url.rstrip('/') + '/api/auth/callback'
-        logger.info(f"Starting OAuth login with callback URL: {callback_url}")
+        # Use manual (oob) OAuth flow - callback URL not registered with E*TRADE
+        # See TROUBLESHOOTING.md Issue 12 for details
+        logger.info("Starting OAuth login with manual (oob) flow")
 
         client = ETradeClient()
-        auth_data = client.get_authorization_url(callback_url=callback_url)
-
-        # Store request tokens for later use (keyed by request token for callback lookup)
-        request_token = auth_data['request_token']
-        _request_tokens[request_token] = {
-            'request_token': request_token,
-            'request_token_secret': auth_data['request_token_secret'],
-            'created_at': datetime.utcnow().isoformat()
-        }
+        auth_data = client.get_authorization_url(callback_url=None)  # Uses 'oob' by default
 
         return jsonify({
             'success': True,
             'authorize_url': auth_data['authorize_url'],
-            'message': 'Redirecting to E*TRADE for authorization...'
+            'request_token': auth_data['request_token'],  # Needed for verify step
+            'message': 'Please visit the authorization URL and enter the verification code'
         })
 
     except Exception as e:
