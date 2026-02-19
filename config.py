@@ -25,7 +25,7 @@ PROD_BASE_URL = 'https://api.etrade.com'
 # OAuth URLs - same for both sandbox and production
 REQUEST_TOKEN_URL = 'https://api.etrade.com/oauth/request_token'
 ACCESS_TOKEN_URL = 'https://api.etrade.com/oauth/access_token'
-AUTHORIZE_URL = 'https://us.etrade.com/e/t/etws/authorize?key={}&token={}'
+AUTHORIZE_URL = 'https://us.etrade.com/e/t/etws/authorize'
 
 # Environment mode - default to sandbox for safety
 USE_SANDBOX = os.environ.get('ETRADE_USE_SANDBOX', 'true').lower() == 'true'
