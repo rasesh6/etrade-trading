@@ -96,21 +96,22 @@ function updateAuthUI(data) {
 }
 
 async function startLogin() {
-    try {
-        const btn = event.target;
-        btn.disabled = true;
-        btn.textContent = 'Connecting...';
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = 'Connecting...';
 
+    // Open popup SYNCHRONOUSLY during click event to avoid popup blocker
+    const popup = window.open('', 'etrade-auth', 'width=800,height=600,scrollbars=yes,resizable=yes');
+
+    try {
         const response = await fetch('/api/auth/login', { method: 'POST' });
         const data = await response.json();
 
         if (data.success) {
-            // Open E*TRADE authorization page in a popup window
-            const popup = window.open(
-                data.authorize_url,
-                'etrade-auth',
-                'width=800,height=600,scrollbars=yes,resizable=yes'
-            );
+            // Redirect popup to E*TRADE authorization URL
+            if (popup) {
+                popup.location.href = data.authorize_url;
+            }
 
             // Prompt user for verification code
             const verifierCode = prompt(
@@ -118,7 +119,7 @@ async function startLogin() {
                 '1. Log in to E*TRADE and accept the authorization\n' +
                 '2. Copy the verification code shown on the page\n' +
                 '3. Paste the code below and click OK:\n\n' +
-                '(If popup was blocked, click: ' + data.authorize_url + ')'
+                '(If popup was blocked, copy this URL: ' + data.authorize_url + ')'
             );
 
             if (verifierCode && verifierCode.trim()) {
@@ -140,9 +141,7 @@ async function startLogin() {
                     alert('Verification failed: ' + verifyData.error);
                 }
             } else if (verifierCode === null) {
-                // User cancelled
-                btn.disabled = false;
-                btn.textContent = 'Connect to E*TRADE';
+                // User cancelled - nothing to do
             } else {
                 alert('Verification code is required. Please try again.');
             }
@@ -151,24 +150,19 @@ async function startLogin() {
             if (popup && !popup.closed) {
                 popup.close();
             }
-
-            btn.disabled = false;
-            btn.textContent = 'Connect to E*TRADE';
         } else {
+            if (popup) popup.close();
             alert('Failed to start login: ' + data.error);
-            btn.disabled = false;
-            btn.textContent = 'Connect to E*TRADE';
         }
 
     } catch (error) {
         console.error('Start login failed:', error);
+        if (popup) popup.close();
         alert('Failed to start login: ' + error.message);
-        const btn = document.querySelector('#auth-not-authenticated .btn-primary');
-        if (btn) {
-            btn.disabled = false;
-            btn.textContent = 'Connect to E*TRADE';
-        }
     }
+
+    btn.disabled = false;
+    btn.textContent = 'Connect to E*TRADE';
 }
 
 async function logout() {
