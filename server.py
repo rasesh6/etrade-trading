@@ -633,35 +633,25 @@ def check_single_order_fill(account_id_key, order_id):
             if str(order.get('orderId')) == str(order_id):
                 order_filled = True
                 logger.info(f"Order {order_id} found in EXECUTED orders!")
-                # Log the FULL order structure to find the correct field for fill price
-                logger.info(f"FULL ORDER JSON: {json.dumps(order, indent=2)}")
 
-                # Get fill price - check multiple possible locations and field names
+                # Get fill price from Instrument.averageExecutionPrice (per E*TRADE API docs)
+                # https://apisb.etrade.com/docs/api/order/api-order-v1.html#/definition/getOrders
                 if 'OrderDetail' in order:
                     for detail in order['OrderDetail']:
-                        logger.info(f"OrderDetail keys: {list(detail.keys())}")
-
-                        # Check various possible field names at OrderDetail level
-                        for field in ['executedPrice', 'Fill', 'fillPrice', 'averagePrice', 'avgPrice', 'price']:
-                            if detail.get(field):
-                                fill_price = float(detail.get(field))
-                                logger.info(f"Fill price from OrderDetail.{field}: {fill_price}")
-                                break
-
-                        if fill_price is None and 'Instrument' in detail:
-                            # Check inside Instrument array
+                        if 'Instrument' in detail:
                             for inst in detail['Instrument']:
-                                logger.info(f"Instrument keys: {list(inst.keys())}")
-                                for field in ['executedPrice', 'Fill', 'fillPrice', 'averagePrice', 'avgPrice', 'price']:
-                                    if inst.get(field):
-                                        fill_price = float(inst.get(field))
-                                        logger.info(f"Fill price from Instrument.{field}: {fill_price}")
-                                        break
-                                if fill_price is not None:
+                                # averageExecutionPrice is the correct field per API docs
+                                if inst.get('averageExecutionPrice'):
+                                    fill_price = float(inst.get('averageExecutionPrice'))
+                                    logger.info(f"Fill price from Instrument.averageExecutionPrice: {fill_price}")
                                     break
-
-                        if fill_price is not None:
-                            break
+                                # Fallback to other field names just in case
+                                elif inst.get('executedPrice'):
+                                    fill_price = float(inst.get('executedPrice'))
+                                    logger.info(f"Fill price from Instrument.executedPrice: {fill_price}")
+                                    break
+                            if fill_price is not None:
+                                break
                 break
 
         if not order_filled:
