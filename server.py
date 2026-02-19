@@ -591,14 +591,22 @@ def check_single_order_fill(account_id_key, order_id):
         client = _get_authenticated_client()
 
         # Check if this order has a pending profit target
-        if order_id not in _pending_profit_orders:
+        # Fix: Convert both to strings for comparison (order_id from URL is string, stored key may be int)
+        order_id_str = str(order_id)
+        matching_key = None
+        for k in _pending_profit_orders.keys():
+            if str(k) == order_id_str:
+                matching_key = k
+                break
+
+        if not matching_key:
             return jsonify({
                 'success': True,
                 'filled': False,
                 'message': 'No profit target for this order'
             })
 
-        profit_order = _pending_profit_orders[order_id]
+        profit_order = _pending_profit_orders[matching_key]
 
         if profit_order['status'] != 'waiting':
             return jsonify({
