@@ -1,7 +1,7 @@
 # E*TRADE Trading System - Troubleshooting Guide
 
 > **Last Updated:** 2026-02-19
-> **Current Version:** v1.3.2-auto-profit
+> **Current Version:** v1.3.3-auto-profit
 > **Environment:** PRODUCTION
 > **Purpose:** Quick reference for debugging issues in future sessions
 

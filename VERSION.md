@@ -1,11 +1,11 @@
 # E*TRADE Trading System - Version History
 
-## Current Version: v1.3.2-auto-profit
+## Current Version: v1.3.3-auto-profit
 
 **Status: WORKING - Auto Fill Checking & Offset-Based Profit Targets**
 
-**Commit:** (pending)
-**Date:** 2026-02-18
+**Commit:** 3eaa205
+**Date:** 2026-02-19
 **Deployed At:** https://web-production-9f73cd.up.railway.app
 **Environment:** PRODUCTION (real trading)
 
@@ -28,11 +28,34 @@
 
 ---
 
+## v1.3.3 - Fixed UI Polling Order (2026-02-19)
+
+### Bug Fixed:
+**UI showed "Order cancelled" even when profit order was placed successfully**
+
+**Problem:**
+The frontend polling logic checked for timeout BEFORE checking for fill. If the order filled at the exact timeout moment, the UI would show "cancelled" even though the backend correctly detected the fill and placed the profit order.
+
+**Solution:**
+Reordered the polling logic:
+1. First, check if order is filled
+2. If filled, show success and stop polling
+3. Only if NOT filled, then check if timeout reached
+4. If timeout, cancel order
+
+### Changes:
+- `static/js/app.js`: Reordered timeout/fill check logic
+- `static/js/app.js`: Changed polling interval from 2000ms to 500ms
+- `static/js/app.js`: Added decimal formatting for elapsed time (e.g., "3.5/15s")
+
+---
+
 ## Version History
 
 | Version | Date | Status | Key Changes |
 |---------|------|--------|-------------|
-| v1.3.2 | 2026-02-18 | ✅ CURRENT | Faster fill polling (500ms instead of 2s) |
+| v1.3.3 | 2026-02-19 | ✅ CURRENT | Fixed UI polling order (check fill BEFORE timeout), 500ms polling |
+| v1.3.2 | 2026-02-18 | Working | Faster fill polling (500ms instead of 2s) |
 | v1.3.1 | 2026-02-18 | Working | Fixed order_id type mismatch in check-fill |
 | v1.3.0 | 2026-02-18 | Working | Offset-based profit, auto fill checking, PRODUCTION mode |
 | v1.2.0 | 2026-02-18 | Working | Profit target feature, sandbox mode |
