@@ -440,6 +440,14 @@ function toggleProfitTarget() {
     const enabled = document.getElementById('enable-profit-target').checked;
     const inputDiv = document.getElementById('profit-target-input');
     inputDiv.style.display = enabled ? 'block' : 'none';
+
+    // Disable bracket order when profit target is enabled
+    if (enabled) {
+        document.getElementById('enable-bracket').checked = false;
+        document.getElementById('bracket-input').style.display = 'none';
+    }
+
+    updateOrderSummary();
 }
 
 function updateProfitLabel() {
@@ -806,28 +814,54 @@ function startBracketMonitoring(orderId, symbol, quantity, side, bracketConfig) 
     statusCard.style.display = 'block';
 
     const pollInterval = 1000; // 1 second
+    const fillTimeout = bracketConfig.fill_timeout || 15; // Get from config
     let bracketState = 'waiting_fill';
+    let elapsedSeconds = 0;
 
     // Clear any existing interval
     if (fillCheckInterval) {
         clearInterval(fillCheckInterval);
     }
 
-    updateBracketStatus('waiting_fill', `Waiting for ${symbol} order to fill...`);
+    updateBracketStatus('waiting_fill', `Waiting for ${symbol} order to fill... (0/${fillTimeout}s)`);
 
     fillCheckInterval = setInterval(async () => {
+        elapsedSeconds += pollInterval / 1000;
+
         try {
             if (bracketState === 'waiting_fill') {
+                // Update status with elapsed time
+                updateBracketStatus('waiting_fill', `Waiting for ${symbol} order to fill... (${elapsedSeconds}/${fillTimeout}s)`);
+
                 // Check if opening order filled
                 const fillResponse = await fetch(`/api/brackets/${orderId}/check-fill`);
                 const fillData = await fillResponse.json();
 
                 if (fillData.filled) {
+                    elapsedSeconds = 0; // Reset for confirmation phase
                     bracketState = 'waiting_confirmation';
                     updateBracketStatus('waiting_confirmation',
                         `✅ Filled @ ${formatCurrency(fillData.fill_price)}. ` +
                         `Waiting for price to reach ${formatCurrency(fillData.trigger_price)}...`
                     );
+                }
+                // CHECK FOR FILL TIMEOUT - after fill check
+                else if (elapsedSeconds >= fillTimeout) {
+                    clearInterval(fillCheckInterval);
+
+                    // Cancel the order
+                    try {
+                        await fetch(`/api/orders/${currentAccountIdKey}/${orderId}/cancel`, {
+                            method: 'POST'
+                        });
+                        updateBracketStatus('timeout',
+                            `Order cancelled (not filled within ${fillTimeout}s)`
+                        );
+                        loadOrders(currentAccountIdKey);
+                    } catch (e) {
+                        updateBracketStatus('error', `Failed to cancel order: ${e.message}`);
+                    }
+                    return;
                 }
             }
             else if (bracketState === 'waiting_confirmation') {

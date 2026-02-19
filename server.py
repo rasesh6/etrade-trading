@@ -594,6 +594,7 @@ def place_order():
                 'stop_loss_offset': bracket.stop_loss_offset,
                 'profit_type': bracket.profit_type,
                 'profit_offset': bracket.profit_offset,
+                'fill_timeout': bracket.fill_timeout,
                 'confirmation_timeout': bracket.confirmation_timeout
             }
             logger.info(f"Created bracket for order {order_id}: confirm {bracket.confirmation_offset}({bracket.confirmation_type}), "
