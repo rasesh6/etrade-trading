@@ -82,7 +82,11 @@ async function startLogin() {
         btn.disabled = true;
         btn.textContent = 'Starting...';
 
-        const response = await fetch('/api/auth/login', { method: 'POST' });
+        const response = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
         const data = await response.json();
 
         if (data.success) {

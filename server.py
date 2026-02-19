@@ -70,7 +70,11 @@ def start_login():
     2. OOB mode (use_callback=False): User manually enters verification code
     """
     try:
-        data = request.get_json() or {}
+        # Handle both JSON and empty POST requests
+        try:
+            data = request.get_json(silent=True) or {}
+        except:
+            data = {}
         use_callback = data.get('use_callback', False)
 
         client = ETradeClient()
