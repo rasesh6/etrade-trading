@@ -636,32 +636,32 @@ def check_single_order_fill(account_id_key, order_id):
                 # Log the FULL order structure to find the correct field for fill price
                 logger.info(f"FULL ORDER JSON: {json.dumps(order, indent=2)}")
 
-                # Get fill price from OrderDetail or Instrument
+                # Get fill price - check multiple possible locations and field names
                 if 'OrderDetail' in order:
                     for detail in order['OrderDetail']:
                         logger.info(f"OrderDetail keys: {list(detail.keys())}")
-                        logger.info(f"OrderDetail FULL: {json.dumps(detail, indent=2)}")
 
-                        # Check for executedPrice at OrderDetail level
-                        if detail.get('executedPrice'):
-                            fill_price = float(detail.get('executedPrice'))
-                            logger.info(f"Fill price from OrderDetail.executedPrice: {fill_price}")
-                            break
+                        # Check various possible field names at OrderDetail level
+                        for field in ['executedPrice', 'Fill', 'fillPrice', 'averagePrice', 'avgPrice', 'price']:
+                            if detail.get(field):
+                                fill_price = float(detail.get(field))
+                                logger.info(f"Fill price from OrderDetail.{field}: {fill_price}")
+                                break
 
-                        # Check inside Instrument array
-                        if 'Instrument' in detail:
+                        if fill_price is None and 'Instrument' in detail:
+                            # Check inside Instrument array
                             for inst in detail['Instrument']:
                                 logger.info(f"Instrument keys: {list(inst.keys())}")
-                                if inst.get('executedPrice'):
-                                    fill_price = float(inst.get('executedPrice'))
-                                    logger.info(f"Fill price from Instrument.executedPrice: {fill_price}")
+                                for field in ['executedPrice', 'Fill', 'fillPrice', 'averagePrice', 'avgPrice', 'price']:
+                                    if inst.get(field):
+                                        fill_price = float(inst.get(field))
+                                        logger.info(f"Fill price from Instrument.{field}: {fill_price}")
+                                        break
+                                if fill_price is not None:
                                     break
-                                elif inst.get('averageExecutedPrice'):
-                                    fill_price = float(inst.get('averageExecutedPrice'))
-                                    logger.info(f"Fill price from Instrument.averageExecutedPrice: {fill_price}")
-                                    break
-                            if fill_price is not None:
-                                break
+
+                        if fill_price is not None:
+                            break
                 break
 
         if not order_filled:
