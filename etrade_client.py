@@ -13,7 +13,7 @@ import random
 import logging
 from urllib.parse import unquote
 from requests import Session
-from requests_oauthlib import OAuth1
+from requests_oauthlib import OAuth1, OAuth1Session
 from config import (
     get_base_url, get_credentials,
     REQUEST_TOKEN_URL, ACCESS_TOKEN_URL, AUTHORIZE_URL,
@@ -21,6 +21,9 @@ from config import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Callback URL for OAuth (E*TRADE redirects here after user authorization)
+CALLBACK_URL = "https://web-production-9f73cd.up.railway.app/api/auth/callback"
 
 
 class ETradeClient:
@@ -35,73 +38,85 @@ class ETradeClient:
         self.access_token_secret = None
         self._oauth = None
 
+        # OAuth1Session for callback-based auth (like pyetrade)
+        self._oauth_session = None
+        self._callback_url = None
+
         logger.info(f"ETradeClient initialized with base_url: {self.base_url}")
 
-    def get_authorization_url(self, callback_url=None):
+    def get_authorization_url(self, callback_url=None, use_callback=False):
         """
         Step 1: Get request token and authorization URL
 
+        Uses OAuth1Session like pyetrade library for better callback support.
+
         Args:
-            callback_url: Optional callback URL. If None, uses 'oob' for manual code entry.
+            callback_url: Optional callback URL. If use_callback=True and this is None,
+                          uses the default CALLBACK_URL.
+            use_callback: If True, use callback-based OAuth. If False, use OOB (manual code).
 
         Returns:
-            dict with 'authorize_url' and 'request_token_secret'
+            dict with 'authorize_url', 'request_token', 'request_token_secret'
         """
         try:
-            # Use provided callback URL or default to 'oob' (out-of-band)
-            callback_uri = callback_url or 'oob'
+            # Determine callback URL
+            if use_callback:
+                callback_uri = callback_url or CALLBACK_URL
+            else:
+                callback_uri = 'oob'
+
+            self._callback_url = callback_uri
 
             logger.info(f"=" * 60)
-            logger.info(f"REQUEST TOKEN CALL")
+            logger.info(f"REQUEST TOKEN CALL (OAuth1Session - pyetrade style)")
             logger.info(f"Callback URL: {callback_uri}")
             logger.info(f"Consumer Key: {self.consumer_key}")
             logger.info(f"Request Token URL: {REQUEST_TOKEN_URL}")
             logger.info(f"=" * 60)
 
-            # Create OAuth1 for request token
-            # E*TRADE requires:
-            # - HMAC-SHA1 signature method
-            # - realm="" in Authorization header
-            oauth = OAuth1(
+            # Use OAuth1Session like pyetrade library
+            # This provides better callback support
+            self._oauth_session = OAuth1Session(
                 self.consumer_key,
-                client_secret=self.consumer_secret,
+                self.consumer_secret,
                 callback_uri=callback_uri,
-                signature_method='HMAC-SHA1',
-                signature_type='auth_header',
-                realm=''
+                signature_type='AUTH_HEADER'
             )
 
-            # Request token - E*TRADE uses GET for request_token
-            response = self.session.get(
-                REQUEST_TOKEN_URL,
-                auth=oauth
-            )
+            # Fetch request token (like pyetrade)
+            try:
+                self._oauth_session.fetch_request_token(REQUEST_TOKEN_URL)
+            except Exception as e:
+                error_msg = str(e)
+                # Check for callback rejection
+                if 'callback_rejected' in error_msg.lower():
+                    logger.error(f"Callback URL rejected by E*TRADE: {callback_uri}")
+                    logger.error(f"This means the callback URL is NOT registered with E*TRADE")
+                    raise Exception(
+                        f"Callback URL not registered with E*TRADE. "
+                        f"The API returned: oauth_acceptable_callback=oob. "
+                        f"Contact E*TRADE support to register: {callback_uri}"
+                    )
+                raise
 
-            logger.info(f"Request token response status: {response.status_code}")
-            logger.info(f"Request token FULL response: {response.text}")
+            # Get the token from the session
+            request_token = self._oauth_session.token.get('oauth_token')
+            request_token_secret = self._oauth_session.token.get('oauth_token_secret')
 
-            if response.status_code != 200:
-                raise Exception(f"Request token failed ({response.status_code}): {response.text}")
+            logger.info(f"Request token obtained: {request_token[:30] if request_token else 'None'}...")
+            logger.info(f"oauth_callback_confirmed: should be True if callback registered")
 
-            # Parse response - E*TRADE returns URL-encoded format
-            token_data = self._parse_oauth_response(response.text)
-            request_token = token_data.get('oauth_token')
-            request_token_secret = token_data.get('oauth_token_secret')
-
-            if not request_token:
-                raise Exception(f"No request token in response: {response.text}")
-
-            authorize_url = AUTHORIZE_URL.format(
-                self.consumer_key,
-                request_token
-            )
+            # Build authorization URL (E*TRADE format: url?key=consumer_key&token=request_token)
+            authorize_url = f"{AUTHORIZE_URL}?key={self.consumer_key}&token={request_token}"
 
             logger.info(f"Generated authorization URL for token: {request_token[:20]}...")
+            logger.info(f"Authorization URL: {authorize_url}")
 
             return {
                 'authorize_url': authorize_url,
                 'request_token': request_token,
-                'request_token_secret': request_token_secret
+                'request_token_secret': request_token_secret,
+                'callback_mode': use_callback
             }
 
         except Exception as e:
@@ -120,14 +135,17 @@ class ETradeClient:
                 params[key] = unquote(value)
         return params
 
-    def complete_authentication(self, verifier_code, request_token, request_token_secret):
+    def complete_authentication(self, verifier_code, request_token=None, request_token_secret=None):
         """
         Step 2: Exchange verification code for access token
 
+        Supports both callback mode (using stored OAuth1Session) and OOB mode
+        (using provided tokens).
+
         Args:
-            verifier_code: Code from E*TRADE authorization page
-            request_token: Request token from step 1
-            request_token_secret: Request token secret from step 1
+            verifier_code: Code from E*TRADE authorization page (or callback URL)
+            request_token: Request token from step 1 (required for OOB mode)
+            request_token_secret: Request token secret from step 1 (required for OOB mode)
 
         Returns:
             dict with access_token and access_token_secret
@@ -135,41 +153,58 @@ class ETradeClient:
         try:
             logger.info(f"Completing authentication with verifier: {verifier_code}")
 
-            # Create OAuth1 for access token
-            # E*TRADE requires:
-            # - HMAC-SHA1 signature method
-            # - realm="" in Authorization header
-            # - oauth_token and oauth_verifier
-            oauth = OAuth1(
-                self.consumer_key,
-                client_secret=self.consumer_secret,
-                resource_owner_key=request_token,
-                resource_owner_secret=request_token_secret,
-                verifier=verifier_code,
-                signature_method='HMAC-SHA1',
-                signature_type='auth_header',
-                realm=''
-            )
+            # Check if we have an OAuth1Session (callback mode)
+            if self._oauth_session is not None:
+                logger.info("Using OAuth1Session (callback mode - like pyetrade)")
 
-            # Get access token - E*TRADE uses GET for access_token
-            response = self.session.get(
-                ACCESS_TOKEN_URL,
-                auth=oauth
-            )
+                # Set verifier on the session (like pyetrade)
+                self._oauth_session._client.client.verifier = verifier_code
 
-            logger.info(f"Access token response status: {response.status_code}")
-            logger.info(f"Access token response: {response.text[:500] if response.text else 'Empty'}")
+                # Fetch access token (like pyetrade)
+                access_token_dict = self._oauth_session.fetch_access_token(ACCESS_TOKEN_URL)
 
-            if response.status_code != 200:
-                raise Exception(f"Access token failed ({response.status_code}): {response.text}")
+                self.access_token = access_token_dict.get('oauth_token')
+                self.access_token_secret = access_token_dict.get('oauth_token_secret')
 
-            # Parse response - E*TRADE returns URL-encoded format
-            token_data = self._parse_oauth_response(response.text)
-            self.access_token = token_data.get('oauth_token')
-            self.access_token_secret = token_data.get('oauth_token_secret')
+                logger.info(f"Access token obtained via OAuth1Session")
+
+            else:
+                # Fallback to OOB mode (manual code entry)
+                logger.info("Using OAuth1 (OOB mode - manual code)")
+
+                if not request_token or not request_token_secret:
+                    raise Exception("request_token and request_token_secret required for OOB mode")
+
+                # Create OAuth1 for access token
+                oauth = OAuth1(
+                    self.consumer_key,
+                    client_secret=self.consumer_secret,
+                    resource_owner_key=request_token,
+                    resource_owner_secret=request_token_secret,
+                    verifier=verifier_code,
+                    signature_method='HMAC-SHA1',
+                    signature_type='auth_header',
+                    realm=''
+                )
+
+                # Get access token - E*TRADE uses GET for access_token
+                response = self.session.get(
+                    ACCESS_TOKEN_URL,
+                    auth=oauth
+                )
+
+                logger.info(f"Access token response status: {response.status_code}")
+
+                if response.status_code != 200:
+                    raise Exception(f"Access token failed ({response.status_code}): {response.text}")
+
+                # Parse response - E*TRADE returns URL-encoded format
+                token_data = self._parse_oauth_response(response.text)
+                self.access_token = token_data.get('oauth_token')
+                self.access_token_secret = token_data.get('oauth_token_secret')
 
             if not self.access_token:
-                raise Exception(f"No access token in response: {response.text}")
+                raise Exception("No access token in response")
 
             # Set up OAuth for future requests
             self._setup_oauth()
@@ -561,6 +596,13 @@ class ETradeClient:
 
         Args:
             order_data: Order details
+                - symbol: Stock symbol
+                - quantity: Number of shares
+                - orderAction: BUY, SELL, BUY_TO_COVER, SELL_SHORT
+                - priceType: MARKET, LIMIT, STOP_LIMIT
+                - limitPrice: Limit price (required for LIMIT and STOP_LIMIT)
+                - stopPrice: Stop price (required for STOP_LIMIT)
+                - orderTerm: GOOD_FOR_DAY, GOOD_TILL_CANCEL, etc.
             preview: Whether this is a preview request
             client_order_id: Optional client order ID (must match between preview and place)
             preview_id: Preview ID from preview response (required for place order)
@@ -572,25 +614,26 @@ class ETradeClient:
         if not client_order_id:
             client_order_id = str(random.randint(1000000000, 9999999999))
 
-        # Determine price type and limit price
+        # Determine price type and prices
         price_type = order_data.get('priceType', 'MARKET')
         limit_price = order_data.get('limitPrice', '')
+        stop_price = order_data.get('stopPrice', '')
+
         if price_type == 'MARKET':
             limit_price = ''
+            stop_price = ''
 
         order_term = order_data.get('orderTerm', 'GOOD_FOR_DAY')
 
         # For sandbox, limit orders need a dummy limit price
-        if price_type == 'LIMIT' and not limit_price:
+        if price_type in ['LIMIT', 'STOP_LIMIT'] and not limit_price:
             limit_price = '100.00'  # Will be replaced by actual price in preview
 
         request_type = 'PreviewOrderRequest' if preview else 'PlaceOrderRequest'
 
         # Build PreviewIds element for place order
         # CRITICAL: E*TRADE requires <PreviewIds> wrapper (capital P, capital I, plural)
-        # See pyetrade library: payload[order_type]["PreviewIds"] = {"previewId": kwargs["previewId"]}
         if preview_id:
-            # Correct format with PreviewIds wrapper
             preview_id_element = f'<PreviewIds><previewId>{preview_id}</previewId></PreviewIds>\n    '
             logger.info(f"DEBUG: Using PreviewIds wrapper format for preview_id={preview_id}")
         else:
@@ -598,8 +641,16 @@ class ETradeClient:
 
         # Build price elements conditionally - only include when needed
         # E*TRADE rejects empty elements like <stopPrice></stopPrice>
-        limit_price_element = f'<limitPrice>{limit_price}</limitPrice>\n        ' if price_type == 'LIMIT' and limit_price else ''
-        stop_price_element = ''  # Stop orders not currently supported, omit entirely
+        if price_type == 'STOP_LIMIT' and stop_price:
+            stop_price_element = f'<stopPrice>{stop_price}</stopPrice>\n        '
+            logger.info(f"DEBUG: Including stopPrice={stop_price} for STOP_LIMIT order")
+        else:
+            stop_price_element = ''
+
+        if price_type in ['LIMIT', 'STOP_LIMIT'] and limit_price:
+            limit_price_element = f'<limitPrice>{limit_price}</limitPrice>\n        '
+        else:
+            limit_price_element = ''
 
         payload = f"""<?xml version="1.0" encoding="UTF-8"?>
 <{request_type}>

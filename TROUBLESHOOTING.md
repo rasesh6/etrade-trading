@@ -1,7 +1,7 @@
 # E*TRADE Trading System - Troubleshooting Guide
 
 > **Last Updated:** 2026-02-19
-> **Current Version:** v1.3.3-auto-profit
+> **Current Version:** v1.4.0-bracket-orders
 > **Environment:** PRODUCTION
 > **Timezone:** All times in **CST (Central Standard Time)** unless otherwise noted
 > **Purpose:** Quick reference for debugging issues in future sessions
@@ -44,6 +44,7 @@ railway whoami
 Look for deployment markers in Railway logs:
 - `FIX4-2026-02-18-PREVIEWIDS-WRAPPER` - Order placement fix
 - `v1.3.0-auto-profit` - Offset-based profit feature
+- `v1.4.0-bracket-orders` - Bracket order feature
 
 ---
 
@@ -192,7 +193,7 @@ railway whoami
 
 ---
 
-### Issue 9: Profit Order Not Placed Despite Fill (CRITICAL BUG - FIXED)
+### Issue 9: Profit Order Not Placed Despite Fill (FIXED)
 
 **Symptoms:**
 - Order fills in production
@@ -201,28 +202,9 @@ railway whoami
 - Profit order never placed
 
 **Root Cause:**
-Type mismatch in dictionary lookup:
-- Order ID from URL parameter: `"40"` (string)
-- Order ID stored in `_pending_profit_orders`: `40` (integer)
-- Python `in` check: `"40" in {40: ...}` returns `False`
+Type mismatch in dictionary lookup (order_id string vs int)
 
-**Solution (commit `5e76a12`):**
-```python
-# Convert both to strings for comparison
-order_id_str = str(order_id)
-matching_key = None
-for k in _pending_profit_orders.keys():
-    if str(k) == order_id_str:
-        matching_key = k
-        break
-
-if not matching_key:
-    return ...
-
-profit_order = _pending_profit_orders[matching_key]
-```
-
-**File:** `server.py` function `check_single_order_fill()`
+**Solution:** Already fixed in v1.3.1
 
 ---
 
@@ -258,8 +240,6 @@ The order is actively being filled by E*TRADE. This error means the order DID fi
 **Solution:**
 This is actually a success case! The order filled before the cancel could process. The check-fill logic should detect this and place the profit order.
 
-**Debugging:** Check Railway logs for the fill detection and profit order placement.
-
 ---
 
 ### Issue 12: Callback OAuth Authentication Fails
@@ -271,68 +251,86 @@ This is actually a success case! The order filled before the cancel could proces
 **Root Cause:**
 E*TRADE requires callback URLs to be pre-registered in the developer portal. The production API key is configured for `oob` (out-of-band/manual) only.
 
-**Detailed Testing (2026-02-18):**
-
-| Test | Callback URL | Result |
-|------|--------------|--------|
-| HTTP callback | `http://web-production-9f73cd.up.railway.app/api/auth/callback` | Rejected |
-| HTTPS callback | `https://web-production-9f73cd.up.railway.app/api/auth/callback` | Rejected |
-
-**API Key Details:**
-- Production Key: `353ce1949c42c71cec4785343aa36539`
-- Request Token URL: `https://api.etrade.com/oauth/request_token`
-
 **Solution:**
-Contact E*TRADE developer support to register callback URL. See `etrade_callback_support_request.txt` for template.
+Contact E*TRADE developer support to register callback URL.
 
 **Current State:** Using manual verification code flow (oob)
 
+**Test script:** `python test_callback_oauth.py`
+
 ---
 
-### Issue 13: Fill Price Returns None / Profit Order Not Placed (CRITICAL BUG - FIXED)
+### Issue 13: Fill Price Returns None (FIXED)
 
 **Symptoms:**
 - Order fills successfully
 - Profit order not placed
 - Error: `unsupported operand type(s) for +: 'NoneType' and 'float'`
-- `executedPrice` returns None
 
 **Root Cause:**
-Wrong field name used for fill price. E*TRADE API uses `averageExecutionPrice` inside the `Instrument` object, NOT `executedPrice` at OrderDetail level.
+Wrong field name used for fill price. E*TRADE API uses `averageExecutionPrice` inside `Instrument`, NOT `executedPrice`.
 
-**Wrong Approach:**
+**Correct approach:**
 ```python
-# WRONG - This field doesn't exist at this level
-fill_price = order['OrderDetail'][0].get('executedPrice')  # Returns None!
+fill_price = order['OrderDetail'][0]['Instrument'][0]['averageExecutionPrice']
 ```
 
-**Correct Approach:**
-```python
-# CORRECT - Use averageExecutionPrice inside Instrument
-for detail in order['OrderDetail']:
-    if 'Instrument' in detail:
-        for inst in detail['Instrument']:
-            if inst.get('averageExecutionPrice'):
-                fill_price = float(inst.get('averageExecutionPrice'))
-                break
+---
+
+### Issue 14: Redis Connection Failed (FIXED in v1.4.0)
+
+**Symptoms:**
+- Logs show: "Redis connection failed, using file fallback"
+- "Error -2 connecting to redis.railway.internal:6379. Name or service not known."
+- Tokens stored in /tmp instead of Redis
+
+**Root Cause:**
+REDIS_URL pointing to non-existent Redis service. Need to use Redis-Y5_F service.
+
+**Solution:**
+```bash
+# Update REDIS_URL to reference new Redis service
+railway variables --set "REDIS_URL=\${{Redis-Y5_F.REDIS_URL}}"
+
+# Redeploy
+railway up
 ```
 
-**API Response Structure:**
-```
-Order
-  └── OrderDetail[]
-        └── Instrument[]
-              └── averageExecutionPrice  <-- This is the fill price!
-              └── filledQuantity
-              └── orderedQuantity
-              └── orderAction
-```
+**Verify:** Check logs for "Connected to Redis for token storage"
 
-**Reference:** E*TRADE API docs at https://apisb.etrade.com/docs/api/order/api-order-v1.html
+---
 
-**File:** `server.py` function `check_single_order_fill()`
+### Issue 15: Bracket Order Confirmation Timeout
 
-**Commit:** `4feb646`
+**Symptoms:**
+- Bracket order placed
+- "Confirmation timeout - price did not reach trigger"
+- Position remains open without bracket
+
+**Root Cause:**
+Price did not move to the confirmation trigger level within the timeout period.
+
+**Solution:**
+1. Use smaller confirmation offset
+2. Increase confirmation timeout (default 300s)
+3. Position remains open - can place manual orders or wait
+
+---
+
+### Issue 16: STOP_LIMIT Order Rejected
+
+**Symptoms:**
+- STOP_LIMIT order fails
+- "Invalid stop price" or similar error
+
+**Root Cause:**
+E*TRADE has specific requirements for stop orders.
+
+**Solution:**
+- Ensure stopPrice is valid (positive number)
+- Ensure limitPrice is valid
+- For SELL stop: stop price should be below current price
+- For BUY stop: stop price should be above current price
 
 ---
 
@@ -340,15 +338,16 @@ Order
 
 | File | Purpose |
 |------|---------|
-| `server.py` | Flask web server, API endpoints, profit order logic |
-| `etrade_client.py` | E*TRADE API wrapper, OAuth, order logic |
+| `server.py` | Flask web server, API endpoints, bracket logic |
+| `etrade_client.py` | E*TRADE API wrapper, OAuth, order building |
+| `bracket_manager.py` | Bracket order lifecycle management |
 | `token_manager.py` | Redis token storage |
 | `config.py` | Credentials and configuration |
-| `static/js/app.js` | Frontend logic, fill monitoring (polls every 500ms) |
+| `static/js/app.js` | Frontend logic, fill & bracket monitoring |
 | `templates/index.html` | Trading UI |
 | `VERSION.md` | Current version and features |
 | `ETRADE_API_REFERENCE.md` | Complete API documentation |
-| `etrade_callback_support_request.txt` | Template for E*TRADE support request |
+| `CALLBACK_OAUTH_RESEARCH.md` | OAuth callback research |
 
 ---
 
@@ -375,12 +374,12 @@ if "previewId" in kwargs:
 ## Deployment Checklist
 
 1. Make code changes
-2. Update deployment marker in `etrade_client.py` (if relevant)
+2. Update VERSION.md if significant changes
 3. Commit with descriptive message
 4. Push to main branch
 5. Railway auto-deploys (~20-30 seconds)
 6. Check logs: `railway logs --tail 30`
-7. Test order placement
+7. Test functionality
 
 ---
 
@@ -390,17 +389,16 @@ If a fix breaks something:
 ```bash
 cd ~/Projects/etrade
 
-# Rollback to v1.3.2 (500ms polling)
-git checkout eb89b98
+# Rollback to v1.3.3 (before bracket orders)
+git checkout <commit-hash>
 git push origin main --force
 
-# Rollback to v1.3.1 (type fix for profit orders)
-git checkout 5e76a12
-git push origin main --force
-
-# Rollback to v1.3.0 (offset-based profit)
-git checkout 4b4a088
-git push origin main --force
+# Available rollback points:
+# v1.3.3 - UI polling fix
+# v1.3.1 - Type fix for profit orders
+# v1.3.0 - Offset-based profit
+# v1.2.0 - Profit target version
+# v1.1.0 - Basic order placement
 ```
 
 ---
@@ -408,9 +406,10 @@ git push origin main --force
 ## Session Quick Start
 
 For a new session, read these files first:
-1. `VERSION.md` - Current version, features, Railway CLI info
+1. `VERSION.md` - Current version, features, Railway info
 2. `README.md` - System overview
 3. `TROUBLESHOOTING.md` (this file)
+4. `bracket_manager.py` - If working on bracket orders
 
 ### Quick Verification Commands
 ```bash
@@ -422,6 +421,9 @@ railway status
 
 # Recent logs
 railway logs --tail 20
+
+# Check Redis connection in logs
+railway logs --tail 50 | grep -i redis
 ```
 
 ---
@@ -432,8 +434,8 @@ railway logs --tail 20
 |----------|-------|
 | Project Name | E*Trade Trading |
 | Project ID | `1419ac9f-57ed-49ee-8ff3-524ac3c52bf8` |
-| Service Name | web |
-| Service ID | `524166fa-7207-4399-9383-6158a833eb71` |
+| Service: web | `524166fa-7207-4399-9383-6158a833eb71` |
+| Service: Redis-Y5_F | `4f17f8ad-90a8-4fb5-8e66-44bd8fe6a27a` |
 | Public URL | https://web-production-9f73cd.up.railway.app |
 
 ---
@@ -442,60 +444,34 @@ railway logs --tail 20
 
 ### 1. E*TRADE Callback URL Registration
 **Status:** Waiting on E*TRADE support
-**Action:** Submit `etrade_callback_support_request.txt` to E*TRADE
-**Callback URL to register:** `https://web-production-9f73cd.up.railway.app/api/auth/callback`
+**Action:** Contact E*TRADE to register callback URL
+**Callback URL:** `https://web-production-9f73cd.up.railway.app/api/auth/callback`
 **API Key:** `353ce1949c42c71cec4785343aa36539`
 
-### 2. SSE for Real-time Fill Notifications
-**Status:** Planned (after callback auth)
-**Goal:** Server-side monitoring with Server-Sent Events push to browser
-**Benefits:**
-- Monitoring continues even if browser tab is closed
-- Real-time push (no polling delay)
-- More reliable than client-side polling
-
-**Implementation Plan:**
-1. Store pending orders in Redis (survives restarts)
-2. Server polls E*TRADE API every 500ms
-3. Use SSE to push fills to connected browsers
-4. Fallback to current polling if SSE not available
+### 2. Server-Side Bracket Monitoring
+**Status:** Future enhancement
+**Goal:** Move bracket monitoring to server-side (survives browser close)
+**Implementation:** Background task with Redis state persistence
 
 ---
 
 ## Session History
 
-### 2026-02-18 Session
+### 2026-02-19 Session
 
 **Issues Fixed:**
-1. Switched from SANDBOX to PRODUCTION mode
-2. Configured Railway CLI access for direct log viewing
-3. Fixed type mismatch bug in check-fill endpoint (order_id string vs int)
-4. Documented extended hours trading limitation (must use LIMIT orders)
-5. Improved fill detection speed (500ms polling)
+1. Added confirmation-based bracket order feature
+2. Added STOP_LIMIT order support
+3. Fixed Redis connection (now using Redis-Y5_F)
+4. Researched callback OAuth (still not registered)
 
-**Commits (chronological):**
-| Commit | Description |
-|--------|-------------|
-| `4d5d945` | Documentation update for production mode |
-| `c7da7b1` | Debug logging for check-fill endpoint |
-| `5e76a12` | Fix order_id type mismatch |
-| `3910f18` | Attempted callback auth (first attempt) |
-| `ec6b4f8` | Revert callback auth (first rejection) |
-| `03c44c9` | Callback auth with detailed debugging |
-| `36620b3` | Fixed HTTPS callback URL |
-| `7a1644c` | Reverted to oob (callback still rejected) |
-| `e9692f7` | Documentation for callback rejection |
-| `3e61b69` | Added E*TRADE support request template |
-| `eb89b98` | Reduced fill polling from 2s to 500ms |
+**New Files Created:**
+- `bracket_manager.py` - Bracket order lifecycle management
+- `test_callback_oauth.py` - Test script for callback OAuth
+- `CALLBACK_OAUTH_RESEARCH.md` - Callback OAuth research documentation
 
-**Key Learnings:**
-- E*TRADE order IDs from API are integers, URL parameters are strings
-- Market orders don't work in extended hours - use LIMIT orders
-- "Order being executed" error on cancel means order filled successfully
-- Always add logging when debugging async polling issues
-- E*TRADE callback URLs must be pre-registered in developer portal
-- E*TRADE returns `oauth_acceptable_callback=oob` when callback not registered
-- Railway terminates SSL, so `request.host_url` returns HTTP not HTTPS
+**New API Endpoints:**
+- `/api/brackets` - Bracket order management
 
 ---
 

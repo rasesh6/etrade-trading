@@ -201,6 +201,109 @@
                         </div>
                     </div>
 
+                    <!-- Bracket Order Section -->
+                    <div class="profit-section bracket-section">
+                        <div class="profit-header">
+                            <label>
+                                <input type="checkbox" id="enable-bracket" onchange="toggleBracketOrder()">
+                                Add Bracket Order (Confirmation-Based)
+                            </label>
+                        </div>
+                        <div id="bracket-input" style="display: none;">
+                            <p class="small-text info bracket-info">
+                                Wait for price to move in your favor, then place bracket with both orders above fill price.
+                                <strong>Guaranteed profit on either exit!</strong>
+                            </p>
+
+                            <!-- Confirmation Trigger -->
+                            <div class="bracket-subsection">
+                                <label class="subsection-label">Confirmation Trigger</label>
+                                <p class="small-text">Wait for price to move this much before placing bracket</p>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <select id="bracket-confirm-type">
+                                            <option value="dollar">$</option>
+                                            <option value="percent">%</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group flex-grow">
+                                        <input type="number" id="bracket-confirm-offset" placeholder="0.50" step="0.01" min="0.01" value="0.50">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Stop Loss (above fill price) -->
+                            <div class="bracket-subsection">
+                                <label class="subsection-label">Protected Stop Loss</label>
+                                <p class="small-text">Placed below trigger price (but above fill = profit)</p>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <select id="bracket-stop-type">
+                                            <option value="dollar">$ below trigger</option>
+                                            <option value="percent">% below trigger</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group flex-grow">
+                                        <input type="number" id="bracket-stop-offset" placeholder="0.25" step="0.01" min="0.01" value="0.25">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Profit Target -->
+                            <div class="bracket-subsection">
+                                <label class="subsection-label">Profit Target</label>
+                                <p class="small-text">Limit order above trigger price</p>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <select id="bracket-profit-type">
+                                            <option value="dollar">$ above trigger</option>
+                                            <option value="percent">% above trigger</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group flex-grow">
+                                        <input type="number" id="bracket-profit-offset" placeholder="1.00" step="0.01" min="0.01" value="1.00">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Timeouts -->
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Fill Timeout (sec)</label>
+                                    <input type="number" id="bracket-fill-timeout" value="15" min="5" max="60">
+                                </div>
+                                <div class="form-group">
+                                    <label>Confirm Timeout (sec)</label>
+                                    <input type="number" id="bracket-confirm-timeout" value="300" min="30" max="3600">
+                                </div>
+                            </div>
+
+                            <!-- Bracket Preview -->
+                            <div class="bracket-preview" id="bracket-preview" style="display: none;">
+                                <h4>Bracket Preview</h4>
+                                <div class="bracket-diagram">
+                                    <div class="bracket-line profit-line">
+                                        <span class="label">Profit Target:</span>
+                                        <span class="value" id="bracket-preview-profit">-</span>
+                                    </div>
+                                    <div class="bracket-line trigger-line">
+                                        <span class="label">Trigger Price:</span>
+                                        <span class="value" id="bracket-preview-trigger">-</span>
+                                    </div>
+                                    <div class="bracket-line stop-line">
+                                        <span class="label">Stop Loss:</span>
+                                        <span class="value" id="bracket-preview-stop">-</span>
+                                    </div>
+                                    <div class="bracket-line fill-line">
+                                        <span class="label">Fill Price:</span>
+                                        <span class="value" id="bracket-preview-fill">-</span>
+                                    </div>
+                                </div>
+                                <p class="small-text">Min guaranteed profit: <span id="bracket-min-profit">-</span></p>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="side-selector">
                         <button class="side-btn buy active" onclick="setSide('BUY')">
                             <span class="side-label">BUY</span>

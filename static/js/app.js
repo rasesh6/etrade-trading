@@ -533,7 +533,7 @@ async function placeOrder() {
         // For bid/ask, server will fetch the price
     }
 
-    // Check for profit target
+    // Check for profit target (simple profit)
     const enableProfitTarget = document.getElementById('enable-profit-target').checked;
     const profitOffsetType = enableProfitTarget ? document.getElementById('profit-offset-type').value : null;
     const profitOffset = enableProfitTarget ? parseFloat(document.getElementById('profit-offset').value) || 0 : null;
@@ -542,6 +542,41 @@ async function placeOrder() {
     if (enableProfitTarget && profitOffset <= 0) {
         alert('Please enter a valid profit offset');
         return;
+    }
+
+    // Check for bracket order
+    const enableBracket = document.getElementById('enable-bracket').checked;
+    let bracketParams = {};
+
+    if (enableBracket) {
+        const bracketConfirmOffset = parseFloat(document.getElementById('bracket-confirm-offset').value) || 0;
+        const bracketStopOffset = parseFloat(document.getElementById('bracket-stop-offset').value) || 0;
+        const bracketProfitOffset = parseFloat(document.getElementById('bracket-profit-offset').value) || 0;
+
+        if (bracketConfirmOffset <= 0) {
+            alert('Please enter a valid confirmation offset');
+            return;
+        }
+        if (bracketStopOffset <= 0) {
+            alert('Please enter a valid stop loss offset');
+            return;
+        }
+        if (bracketProfitOffset <= 0) {
+            alert('Please enter a valid profit target offset');
+            return;
+        }
+
+        bracketParams = {
+            bracket_enabled: true,
+            bracket_confirmation_type: document.getElementById('bracket-confirm-type').value,
+            bracket_confirmation_offset: bracketConfirmOffset,
+            bracket_stop_type: document.getElementById('bracket-stop-type').value === 'dollar' ? 'dollar' : 'percent',
+            bracket_stop_offset: bracketStopOffset,
+            bracket_profit_type: document.getElementById('bracket-profit-type').value === 'dollar' ? 'dollar' : 'percent',
+            bracket_profit_offset: bracketProfitOffset,
+            fill_timeout: parseInt(document.getElementById('bracket-fill-timeout').value) || 15,
+            bracket_confirmation_timeout: parseInt(document.getElementById('bracket-confirm-timeout').value) || 300
+        };
     }
 
     const btn = document.getElementById('place-order-btn');
@@ -563,7 +598,8 @@ async function placeOrder() {
                 limitPriceSource: orderType === 'LIMIT' ? currentPriceSource : null,
                 profit_offset_type: profitOffsetType,
                 profit_offset: profitOffset,
-                fill_timeout: fillTimeout
+                fill_timeout: fillTimeout,
+                ...bracketParams
             })
         });
 
@@ -573,8 +609,18 @@ async function placeOrder() {
             showResponse('success', 'Order Placed', data.order);
             loadOrders(currentAccountIdKey);  // Refresh orders list
 
-            // If profit target enabled, start monitoring
-            if (enableProfitTarget && data.order.order_id) {
+            // If bracket order enabled, start bracket monitoring
+            if (enableBracket && data.order.order_id && data.order.bracket) {
+                startBracketMonitoring(
+                    data.order.order_id,
+                    symbol,
+                    quantity,
+                    currentSide,
+                    data.order.bracket
+                );
+            }
+            // If simple profit target enabled, start standard monitoring
+            else if (enableProfitTarget && data.order.order_id) {
                 startOrderMonitoring(
                     data.order.order_id,
                     symbol,
@@ -730,4 +776,168 @@ function formatCurrency(value) {
 function formatNumber(value) {
     if (value === null || value === undefined) return '-';
     return parseInt(value).toLocaleString('en-US');
+}
+
+// ==================== BRACKET ORDER FUNCTIONS ====================
+
+function toggleBracketOrder() {
+    const enabled = document.getElementById('enable-bracket').checked;
+    const bracketInput = document.getElementById('bracket-input');
+
+    bracketInput.style.display = enabled ? 'block' : 'none';
+
+    // Disable simple profit target when bracket is enabled
+    if (enabled) {
+        document.getElementById('enable-profit-target').checked = false;
+        document.getElementById('profit-target-input').style.display = 'none';
+    }
+
+    updateOrderSummary();
+}
+
+function startBracketMonitoring(orderId, symbol, quantity, side, bracketConfig) {
+    const statusCard = document.getElementById('order-status-card');
+    const statusContent = document.getElementById('order-status-content');
+
+    statusCard.style.display = 'block';
+
+    const pollInterval = 1000; // 1 second
+    let bracketState = 'waiting_fill';
+
+    // Clear any existing interval
+    if (fillCheckInterval) {
+        clearInterval(fillCheckInterval);
+    }
+
+    updateBracketStatus('waiting_fill', `Waiting for ${symbol} order to fill...`);
+
+    fillCheckInterval = setInterval(async () => {
+        try {
+            if (bracketState === 'waiting_fill') {
+                // Check if opening order filled
+                const fillResponse = await fetch(`/api/brackets/${orderId}/check-fill`);
+                const fillData = await fillResponse.json();
+
+                if (fillData.filled) {
+                    bracketState = 'waiting_confirmation';
+                    updateBracketStatus('waiting_confirmation',
+                        `✅ Filled @ ${formatCurrency(fillData.fill_price)}. ` +
+                        `Waiting for price to reach ${formatCurrency(fillData.trigger_price)}...`
+                    );
+                }
+            }
+            else if (bracketState === 'waiting_confirmation') {
+                // Check if confirmation reached
+                const confirmResponse = await fetch(`/api/brackets/${orderId}/check-confirmation`);
+                const confirmData = await confirmResponse.json();
+
+                if (confirmData.timeout) {
+                    clearInterval(fillCheckInterval);
+                    updateBracketStatus('timeout',
+                        `⚠️ Confirmation timeout - price did not reach trigger. ` +
+                        `Position remains open without bracket.`
+                    );
+                    return;
+                }
+
+                if (confirmData.confirmed && confirmData.bracket_placed) {
+                    bracketState = 'bracket_active';
+                    updateBracketStatus('bracket_active',
+                        `✅ Confirmation reached @ ${formatCurrency(confirmData.current_price)}!<br>` +
+                        `Bracket placed:<br>` +
+                        `• Stop Loss: ${formatCurrency(confirmData.stop_limit_price)} (stop ${formatCurrency(confirmData.stop_price)})<br>` +
+                        `• Profit Target: ${formatCurrency(confirmData.profit_limit_price)}`
+                    );
+                } else if (confirmData.current_price) {
+                    const triggerPrice = confirmData.trigger_price;
+                    const currentPrice = confirmData.current_price;
+                    const fillPrice = confirmData.fill_price;
+
+                    // Calculate progress for visual feedback
+                    let progress = '';
+                    if (side === 'BUY') {
+                        const totalMove = triggerPrice - fillPrice;
+                        const currentMove = currentPrice - fillPrice;
+                        const pct = Math.min(100, Math.max(0, (currentMove / totalMove) * 100));
+                        progress = `Progress: ${pct.toFixed(0)}% (${formatCurrency(currentPrice)} / ${formatCurrency(triggerPrice)})`;
+                    } else {
+                        const totalMove = fillPrice - triggerPrice;
+                        const currentMove = fillPrice - currentPrice;
+                        const pct = Math.min(100, Math.max(0, (currentMove / totalMove) * 100));
+                        progress = `Progress: ${pct.toFixed(0)}% (${formatCurrency(currentPrice)} / ${formatCurrency(triggerPrice)})`;
+                    }
+
+                    updateBracketStatus('waiting_confirmation',
+                        `Waiting for confirmation...<br>${progress}`
+                    );
+                }
+            }
+            else if (bracketState === 'bracket_active') {
+                // Check if either bracket order filled
+                const bracketResponse = await fetch(`/api/brackets/${orderId}/check-bracket`);
+                const bracketData = await bracketResponse.json();
+
+                if (bracketData.stop_filled) {
+                    clearInterval(fillCheckInterval);
+                    updateBracketStatus('complete',
+                        `🛑 Stop loss filled! Bracket complete.<br>` +
+                        `Minimum profit locked in (above fill price).`
+                    );
+                    loadOrders(currentAccountIdKey);
+                    loadPositions(currentAccountIdKey);
+                    return;
+                }
+
+                if (bracketData.profit_filled) {
+                    clearInterval(fillCheckInterval);
+                    updateBracketStatus('complete',
+                        `🎯 Profit target filled! Bracket complete.<br>` +
+                        `Full profit target reached.`
+                    );
+                    loadOrders(currentAccountIdKey);
+                    loadPositions(currentAccountIdKey);
+                    return;
+                }
+
+                // Still waiting
+                updateBracketStatus('bracket_active',
+                    `Bracket active - monitoring...<br>` +
+                    `Waiting for price to hit target or stop.`
+                );
+            }
+
+        } catch (e) {
+            console.error('Bracket monitoring error:', e);
+        }
+
+    }, pollInterval);
+}
+
+function updateBracketStatus(state, message) {
+    const statusContent = document.getElementById('order-status-content');
+
+    const stateLabels = {
+        'waiting_fill': '⏳ Waiting for Fill',
+        'waiting_confirmation': '📈 Waiting for Confirmation',
+        'bracket_active': '🎯 Bracket Active',
+        'complete': '✅ Complete',
+        'timeout': '⚠️ Timeout'
+    };
+
+    const stateColors = {
+        'waiting_fill': '#ffc107',
+        'waiting_confirmation': '#17a2b8',
+        'bracket_active': '#28a745',
+        'complete': '#28a745',
+        'timeout': '#dc3545'
+    };
+
+    statusContent.innerHTML = `
+        <div class="bracket-status">
+            <div class="bracket-state" style="color: ${stateColors[state] || '#666'}">
+                ${stateLabels[state] || state}
+            </div>
+            <div class="bracket-message">${message}</div>
+        </div>
+    `;
 }

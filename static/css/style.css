@@ -779,3 +779,121 @@ select {
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-muted);
 }
+
+/* ==================== BRACKET ORDER STYLES ==================== */
+
+.bracket-section {
+    margin-top: 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px;
+    background: rgba(0, 120, 212, 0.05);
+}
+
+.bracket-info {
+    color: var(--info);
+    margin-bottom: 12px;
+}
+
+.bracket-subsection {
+    margin-bottom: 16px;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 6px;
+}
+
+.subsection-label {
+    font-weight: 600;
+    color: var(--text-primary);
+    display: block;
+    margin-bottom: 4px;
+}
+
+.bracket-subsection .small-text {
+    margin-bottom: 8px;
+    font-size: 0.85em;
+}
+
+.bracket-preview {
+    margin-top: 16px;
+    padding: 12px;
+    background: rgba(0, 200, 83, 0.1);
+    border-radius: 6px;
+    border: 1px dashed var(--success);
+}
+
+.bracket-preview h4 {
+    color: var(--success);
+    margin-bottom: 12px;
+}
+
+.bracket-diagram {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.bracket-line {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+
+.profit-line {
+    background: rgba(0, 200, 83, 0.15);
+    color: var(--success);
+}
+
+.trigger-line {
+    background: rgba(0, 176, 255, 0.15);
+    color: var(--info);
+}
+
+.stop-line {
+    background: rgba(255, 145, 0, 0.15);
+    color: var(--warning);
+}
+
+.fill-line {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-secondary);
+}
+
+/* Bracket Status Display */
+.bracket-status {
+    padding: 8px;
+}
+
+.bracket-state {
+    font-size: 1.1em;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.bracket-message {
+    font-size: 0.95em;
+    line-height: 1.6;
+    color: var(--text-secondary);
+}
+
+.flex-grow {
+    flex-grow: 1;
+}
+
+/* Form row fix for bracket */
+.bracket-section .form-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.bracket-section .form-group {
+    flex: 1;
+    min-width: 0;
+}
+
+.bracket-section .form-group:first-child {
+    flex: 0.4;
+}

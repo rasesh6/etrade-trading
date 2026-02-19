@@ -11,6 +11,7 @@ from flask import Flask, render_template, request, jsonify, session, redirect, u
 from config import SECRET_KEY, USE_SANDBOX
 from etrade_client import ETradeClient
 from token_manager import get_token_manager
+from bracket_manager import get_bracket_manager, PendingBracket, BracketState
 
 # Configure logging
 logging.basicConfig(
@@ -25,6 +26,9 @@ app.secret_key = SECRET_KEY
 
 # Store request tokens temporarily during auth flow
 _request_tokens = {}
+
+# Store OAuth sessions for callback-based auth (OAuth1Session objects)
+_oauth_sessions = {}
 
 # Store pending profit orders (in memory - will be lost on restart)
 # Format: {order_id: {symbol, quantity, profit_offset_type, profit_offset, account_id_key, opening_side}}
@@ -59,24 +63,40 @@ def auth_status():
 
 @app.route('/api/auth/login', methods=['POST'])
 def start_login():
-    """Start OAuth login flow - get authorization URL"""
+    """Start OAuth login flow - get authorization URL
+
+    Supports two modes:
+    1. Callback mode (use_callback=True): User is redirected back automatically
+    2. OOB mode (use_callback=False): User manually enters verification code
+    """
     try:
+        data = request.get_json() or {}
+        use_callback = data.get('use_callback', False)
+
         client = ETradeClient()
-        auth_data = client.get_authorization_url()
+        auth_data = client.get_authorization_url(use_callback=use_callback)
 
         # Store request tokens for later use
         import secrets
         flow_id = secrets.token_urlsafe(16)
-        _request_tokens[flow_id] = {
-            'request_token': auth_data['request_token'],
-            'request_token_secret': auth_data['request_token_secret']
-        }
+
+        if use_callback:
+            # Store the OAuth session for callback mode
+            _oauth_sessions[flow_id] = client._oauth_session
+            logger.info(f"Stored OAuth1Session for callback flow_id={flow_id}")
+        else:
+            # Store tokens for OOB mode
+            _request_tokens[flow_id] = {
+                'request_token': auth_data['request_token'],
+                'request_token_secret': auth_data['request_token_secret']
+            }
 
         return jsonify({
             'success': True,
             'authorize_url': auth_data['authorize_url'],
             'flow_id': flow_id,
-            'message': 'Please visit the URL, authorize, and enter the verification code'
+            'callback_mode': use_callback,
+            'message': 'Please visit the URL and authorize the application'
         })
 
     except Exception as e:
@@ -86,7 +106,7 @@ def start_login():
 
 @app.route('/api/auth/verify', methods=['POST'])
 def verify_code():
-    """Verify OAuth code and complete authentication"""
+    """Verify OAuth code and complete authentication (OOB mode)"""
     try:
         data = request.get_json()
         verifier_code = data.get('verifier_code', '').strip()
@@ -124,6 +144,66 @@ def verify_code():
     except Exception as e:
         logger.error(f"Verification failed: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/auth/callback')
+def auth_callback():
+    """
+    OAuth callback endpoint - receives verifier from E*TRADE (callback mode)
+
+    E*TRADE redirects here with: ?oauth_token=xxx&oauth_verifier=xxx
+    This is called automatically when callback URL is registered with E*TRADE.
+    """
+    try:
+        oauth_token = request.args.get('oauth_token')
+        oauth_verifier = request.args.get('oauth_verifier')
+        flow_id = request.args.get('state')  # We may pass flow_id as state
+
+        logger.info(f"=" * 60)
+        logger.info(f"OAUTH CALLBACK RECEIVED")
+        logger.info(f"oauth_token: {oauth_token[:30] if oauth_token else 'None'}...")
+        logger.info(f"oauth_verifier: {oauth_verifier}")
+        logger.info(f"state/flow_id: {flow_id}")
+        logger.info(f"=" * 60)
+
+        if not oauth_verifier:
+            logger.error("No verifier received in callback")
+            return redirect(url_for('index', error='No+verifier+received+from+E*TRADE'))
+
+        # Try to find the OAuth session
+        client = ETradeClient()
+
+        if flow_id and flow_id in _oauth_sessions:
+            # Use stored OAuth session
+            logger.info(f"Found OAuth session for flow_id={flow_id}")
+            client._oauth_session = _oauth_sessions.pop(flow_id)
+            result = client.complete_authentication(oauth_verifier)
+        else:
+            # Fallback: try to find any pending session
+            if _oauth_sessions:
+                logger.info("Using first available OAuth session")
+                flow_id = list(_oauth_sessions.keys())[0]
+                client._oauth_session = _oauth_sessions.pop(flow_id)
+                result = client.complete_authentication(oauth_verifier)
+            else:
+                logger.error("No OAuth session found for callback")
+                return redirect(url_for('index', error='Session+expired.+Please+try+again.'))
+
+        # Save tokens to storage
+        token_manager = get_token_manager()
+        token_manager.save_tokens(
+            result['access_token'],
+            result['access_token_secret']
+        )
+
+        logger.info("Callback authentication successful!")
+
+        # Redirect to main page with success
+        return redirect(url_for('index', auth_success='true'))
+
+    except Exception as e:
+        logger.error(f"Callback authentication failed: {e}")
+        return redirect(url_for('index', error=str(e).replace(' ', '+')))
 
 
 @app.route('/api/auth/logout', methods=['POST'])
@@ -470,6 +550,51 @@ def place_order():
             }
             logger.info(f"Stored pending profit order for order_id={order_id}, offset={profit_offset} ({profit_offset_type})")
 
+        # If bracket order is enabled, create pending bracket
+        bracket_enabled = data.get('bracket_enabled', False)
+        bracket_response = None
+
+        if bracket_enabled and order_id:
+            bracket_manager = get_bracket_manager()
+
+            bracket = PendingBracket(
+                opening_order_id=order_id,
+                symbol=symbol,
+                quantity=quantity,
+                account_id_key=account_id_key,
+                opening_side=side,
+
+                # Confirmation config
+                confirmation_type=data.get('bracket_confirmation_type', 'dollar'),
+                confirmation_offset=float(data.get('bracket_confirmation_offset', 0)),
+
+                # Stop loss config
+                stop_loss_type=data.get('bracket_stop_type', 'dollar'),
+                stop_loss_offset=float(data.get('bracket_stop_offset', 0)),
+
+                # Profit config
+                profit_type=data.get('bracket_profit_type', 'dollar'),
+                profit_offset=float(data.get('bracket_profit_offset', 0)),
+
+                # Timeouts
+                fill_timeout=int(data.get('fill_timeout', 15)),
+                confirmation_timeout=int(data.get('bracket_confirmation_timeout', 300))
+            )
+
+            bracket_manager.add_bracket(bracket)
+            bracket_response = {
+                'enabled': True,
+                'confirmation_type': bracket.confirmation_type,
+                'confirmation_offset': bracket.confirmation_offset,
+                'stop_loss_type': bracket.stop_loss_type,
+                'stop_loss_offset': bracket.stop_loss_offset,
+                'profit_type': bracket.profit_type,
+                'profit_offset': bracket.profit_offset,
+                'confirmation_timeout': bracket.confirmation_timeout
+            }
+            logger.info(f"Created bracket for order {order_id}: confirm {bracket.confirmation_offset}({bracket.confirmation_type}), "
+                       f"stop {bracket.stop_loss_offset}({bracket.stop_loss_type}), profit {bracket.profit_offset}({bracket.profit_type})")
+
         return jsonify({
             'success': True,
             'order': {
@@ -482,7 +607,8 @@ def place_order():
                 'estimated_commission': preview_result.get('estimated_commission'),
                 'message': result.get('message', 'Order placed successfully'),
                 'profit_offset_type': profit_offset_type,
-                'profit_offset': profit_offset
+                'profit_offset': profit_offset,
+                'bracket': bracket_response
             }
         })
 
@@ -898,6 +1024,399 @@ def check_fills_and_place_profits():
 
     except Exception as e:
         logger.error(f"Check fills failed: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==================== BRACKET ORDER API ====================
+
+@app.route('/api/brackets', methods=['GET'])
+def get_brackets():
+    """Get all pending bracket orders"""
+    bracket_manager = get_bracket_manager()
+    brackets = bracket_manager.get_all_brackets()
+
+    result = []
+    for order_id, bracket in brackets.items():
+        result.append(bracket.to_dict())
+
+    return jsonify({
+        'success': True,
+        'brackets': result,
+        'count': len(result)
+    })
+
+
+@app.route('/api/brackets/<int:opening_order_id>', methods=['GET'])
+def get_bracket_status(opening_order_id):
+    """Get status of a specific bracket order"""
+    bracket_manager = get_bracket_manager()
+    bracket = bracket_manager.get_bracket(opening_order_id)
+
+    if not bracket:
+        return jsonify({
+            'success': False,
+            'error': f'No bracket found for order {opening_order_id}'
+        }), 404
+
+    return jsonify({
+        'success': True,
+        'bracket': bracket.to_dict()
+    })
+
+
+@app.route('/api/brackets/<int:opening_order_id>/check-fill', methods=['GET'])
+def check_bracket_fill(opening_order_id):
+    """
+    Check if opening order is filled and update bracket state.
+    Called by frontend polling during PENDING_FILL state.
+    """
+    try:
+        bracket_manager = get_bracket_manager()
+        bracket = bracket_manager.get_bracket(opening_order_id)
+
+        if not bracket:
+            return jsonify({
+                'success': False,
+                'error': f'No bracket found for order {opening_order_id}'
+            }), 404
+
+        if bracket.state != BracketState.PENDING_FILL:
+            return jsonify({
+                'success': True,
+                'filled': bracket.state != BracketState.PENDING_FILL,
+                'state': bracket.state,
+                'bracket': bracket.to_dict()
+            })
+
+        client = _get_authenticated_client()
+
+        # Check if order is filled
+        orders = client.get_orders(bracket.account_id_key, status='EXECUTED')
+
+        fill_price = None
+        for order in orders:
+            if str(order.get('orderId')) == str(opening_order_id):
+                # Get fill price
+                if 'OrderDetail' in order:
+                    for detail in order['OrderDetail']:
+                        if 'Instrument' in detail:
+                            for inst in detail['Instrument']:
+                                if inst.get('averageExecutionPrice'):
+                                    fill_price = float(inst.get('averageExecutionPrice'))
+                                    break
+                            if fill_price:
+                                break
+                break
+
+        if fill_price:
+            bracket_manager.mark_filled(opening_order_id, fill_price)
+            logger.info(f"Bracket opening order {opening_order_id} filled at {fill_price}")
+
+            return jsonify({
+                'success': True,
+                'filled': True,
+                'fill_price': fill_price,
+                'trigger_price': bracket.trigger_price,
+                'state': bracket.state,
+                'bracket': bracket.to_dict()
+            })
+
+        return jsonify({
+            'success': True,
+            'filled': False,
+            'state': bracket.state,
+            'bracket': bracket.to_dict()
+        })
+
+    except Exception as e:
+        logger.error(f"Check bracket fill failed: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/brackets/<int:opening_order_id>/check-confirmation', methods=['GET'])
+def check_bracket_confirmation(opening_order_id):
+    """
+    Check if price has reached confirmation trigger and place bracket if so.
+    Called by frontend polling during WAITING_CONFIRMATION state.
+    """
+    try:
+        bracket_manager = get_bracket_manager()
+        bracket = bracket_manager.get_bracket(opening_order_id)
+
+        if not bracket:
+            return jsonify({
+                'success': False,
+                'error': f'No bracket found for order {opening_order_id}'
+            }), 404
+
+        if bracket.state != BracketState.WAITING_CONFIRMATION:
+            return jsonify({
+                'success': True,
+                'confirmed': False,
+                'state': bracket.state,
+                'message': f'Bracket in state {bracket.state}',
+                'bracket': bracket.to_dict()
+            })
+
+        # Check for confirmation timeout
+        if bracket.is_confirmation_timeout():
+            bracket_manager.mark_error(opening_order_id, 'Confirmation timeout - price did not reach trigger')
+            return jsonify({
+                'success': True,
+                'confirmed': False,
+                'timeout': True,
+                'state': bracket.state,
+                'message': 'Confirmation timeout - price did not reach trigger',
+                'bracket': bracket.to_dict()
+            })
+
+        client = _get_authenticated_client()
+
+        # Get current price
+        quote = client.get_quote(bracket.symbol)
+        current_price = None
+        if quote and 'All' in quote:
+            current_price = quote['All'].get('lastTrade')
+
+        if not current_price:
+            return jsonify({
+                'success': True,
+                'confirmed': False,
+                'state': bracket.state,
+                'message': 'Could not get current price',
+                'bracket': bracket.to_dict()
+            })
+
+        # Check if confirmation reached
+        if bracket.check_confirmation(current_price):
+            logger.info(f"Confirmation reached for order {opening_order_id} at price {current_price}")
+
+            # Calculate bracket prices
+            stop_price, stop_limit_price, profit_limit_price = bracket.calculate_bracket_prices(current_price)
+
+            # Place bracket orders
+            try:
+                # Place STOP LIMIT order
+                stop_order_data = {
+                    'symbol': bracket.symbol,
+                    'quantity': bracket.quantity,
+                    'orderAction': bracket.get_closing_side(),
+                    'priceType': 'STOP_LIMIT',
+                    'orderTerm': 'GOOD_FOR_DAY',
+                    'stopPrice': str(stop_price),
+                    'limitPrice': str(stop_limit_price)
+                }
+
+                stop_preview = client.preview_order(bracket.account_id_key, stop_order_data)
+                stop_result = client.place_order(
+                    bracket.account_id_key,
+                    stop_order_data,
+                    preview_id=stop_preview.get('preview_id'),
+                    client_order_id=stop_preview.get('client_order_id')
+                )
+                stop_order_id = stop_result.get('order_id')
+
+                logger.info(f"Placed STOP LIMIT order {stop_order_id} for {bracket.symbol} @ stop {stop_price}, limit {stop_limit_price}")
+
+                # Place LIMIT order for profit target
+                profit_order_data = {
+                    'symbol': bracket.symbol,
+                    'quantity': bracket.quantity,
+                    'orderAction': bracket.get_closing_side(),
+                    'priceType': 'LIMIT',
+                    'orderTerm': 'GOOD_FOR_DAY',
+                    'limitPrice': str(profit_limit_price)
+                }
+
+                profit_preview = client.preview_order(bracket.account_id_key, profit_order_data)
+                profit_result = client.place_order(
+                    bracket.account_id_key,
+                    profit_order_data,
+                    preview_id=profit_preview.get('preview_id'),
+                    client_order_id=profit_preview.get('client_order_id')
+                )
+                profit_order_id = profit_result.get('order_id')
+
+                logger.info(f"Placed LIMIT order {profit_order_id} for {bracket.symbol} @ {profit_limit_price}")
+
+                # Update bracket state
+                bracket_manager.mark_bracket_placed(opening_order_id, stop_order_id, profit_order_id)
+
+                return jsonify({
+                    'success': True,
+                    'confirmed': True,
+                    'bracket_placed': True,
+                    'current_price': current_price,
+                    'stop_order_id': stop_order_id,
+                    'profit_order_id': profit_order_id,
+                    'stop_price': stop_price,
+                    'stop_limit_price': stop_limit_price,
+                    'profit_limit_price': profit_limit_price,
+                    'state': bracket.state,
+                    'bracket': bracket.to_dict()
+                })
+
+            except Exception as e:
+                logger.error(f"Failed to place bracket orders: {e}")
+                bracket_manager.mark_error(opening_order_id, str(e))
+                return jsonify({
+                    'success': False,
+                    'confirmed': True,
+                    'bracket_placed': False,
+                    'error': str(e),
+                    'bracket': bracket.to_dict()
+                }), 500
+
+        return jsonify({
+            'success': True,
+            'confirmed': False,
+            'current_price': current_price,
+            'trigger_price': bracket.trigger_price,
+            'fill_price': bracket.fill_price,
+            'state': bracket.state,
+            'bracket': bracket.to_dict()
+        })
+
+    except Exception as e:
+        logger.error(f"Check bracket confirmation failed: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/brackets/<int:opening_order_id>/check-bracket', methods=['GET'])
+def check_bracket_orders(opening_order_id):
+    """
+    Check if either bracket order has filled and cancel the other.
+    Called by frontend polling during BRACKET_PLACED state.
+    """
+    try:
+        bracket_manager = get_bracket_manager()
+        bracket = bracket_manager.get_bracket(opening_order_id)
+
+        if not bracket:
+            return jsonify({
+                'success': False,
+                'error': f'No bracket found for order {opening_order_id}'
+            }), 404
+
+        if bracket.state != BracketState.BRACKET_PLACED:
+            return jsonify({
+                'success': True,
+                'state': bracket.state,
+                'message': f'Bracket in state {bracket.state}',
+                'bracket': bracket.to_dict()
+            })
+
+        client = _get_authenticated_client()
+
+        # Check if stop order filled
+        orders = client.get_orders(bracket.account_id_key, status='EXECUTED')
+        stop_filled = False
+        profit_filled = False
+
+        for order in orders:
+            order_id = order.get('orderId')
+            if str(order_id) == str(bracket.stop_order_id):
+                stop_filled = True
+                break
+            if str(order_id) == str(bracket.profit_order_id):
+                profit_filled = True
+                break
+
+        if stop_filled:
+            # Cancel profit order
+            try:
+                client.cancel_order(bracket.account_id_key, bracket.profit_order_id)
+                logger.info(f"Cancelled profit order {bracket.profit_order_id} (stop filled)")
+            except Exception as e:
+                logger.warning(f"Could not cancel profit order: {e}")
+
+            bracket_manager.mark_stop_filled(opening_order_id)
+            return jsonify({
+                'success': True,
+                'stop_filled': True,
+                'profit_filled': False,
+                'state': bracket.state,
+                'message': 'Stop loss filled - bracket complete',
+                'bracket': bracket.to_dict()
+            })
+
+        if profit_filled:
+            # Cancel stop order
+            try:
+                client.cancel_order(bracket.account_id_key, bracket.stop_order_id)
+                logger.info(f"Cancelled stop order {bracket.stop_order_id} (profit filled)")
+            except Exception as e:
+                logger.warning(f"Could not cancel stop order: {e}")
+
+            bracket_manager.mark_profit_filled(opening_order_id)
+            return jsonify({
+                'success': True,
+                'stop_filled': False,
+                'profit_filled': True,
+                'state': bracket.state,
+                'message': 'Profit target filled - bracket complete',
+                'bracket': bracket.to_dict()
+            })
+
+        return jsonify({
+            'success': True,
+            'stop_filled': False,
+            'profit_filled': False,
+            'state': bracket.state,
+            'bracket': bracket.to_dict()
+        })
+
+    except Exception as e:
+        logger.error(f"Check bracket orders failed: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/brackets/<int:opening_order_id>/cancel', methods=['POST'])
+def cancel_bracket(opening_order_id):
+    """Cancel a bracket order and optionally the opening position"""
+    try:
+        bracket_manager = get_bracket_manager()
+        bracket = bracket_manager.get_bracket(opening_order_id)
+
+        if not bracket:
+            return jsonify({
+                'success': False,
+                'error': f'No bracket found for order {opening_order_id}'
+            }), 404
+
+        client = _get_authenticated_client()
+        cancelled_orders = []
+
+        # Cancel bracket orders if placed
+        if bracket.stop_order_id:
+            try:
+                client.cancel_order(bracket.account_id_key, bracket.stop_order_id)
+                cancelled_orders.append(f'stop:{bracket.stop_order_id}')
+            except Exception as e:
+                logger.warning(f"Could not cancel stop order: {e}")
+
+        if bracket.profit_order_id:
+            try:
+                client.cancel_order(bracket.account_id_key, bracket.profit_order_id)
+                cancelled_orders.append(f'profit:{bracket.profit_order_id}')
+            except Exception as e:
+                logger.warning(f"Could not cancel profit order: {e}")
+
+        # Update state
+        bracket.state = BracketState.CANCELLED
+        bracket.completed_at = datetime.utcnow()
+
+        # Remove from manager
+        bracket_manager.remove_bracket(opening_order_id)
+
+        return jsonify({
+            'success': True,
+            'cancelled_orders': cancelled_orders,
+            'message': 'Bracket cancelled'
+        })
+
+    except Exception as e:
+        logger.error(f"Cancel bracket failed: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
