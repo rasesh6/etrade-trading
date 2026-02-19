@@ -543,8 +543,14 @@ def cancel_order(account_id_key, order_id):
         result = client.cancel_order(account_id_key, order_id)
 
         # Also remove any pending profit order for this order
-        if order_id in _pending_profit_orders:
-            del _pending_profit_orders[order_id]
+        # Fix: order_id from URL is string, need to match with integer key
+        matching_key = None
+        for k in _pending_profit_orders.keys():
+            if str(k) == str(order_id):
+                matching_key = k
+                break
+        if matching_key:
+            del _pending_profit_orders[matching_key]
             logger.info(f"Removed pending profit order for cancelled order_id={order_id}")
 
         return jsonify({
@@ -725,8 +731,8 @@ def check_single_order_fill(account_id_key, order_id):
 
                 logger.info(f"Placed profit order for {profit_order['symbol']} @ ${profit_price}")
 
-                # Update status
-                _pending_profit_orders[order_id]['status'] = 'placed'
+                # Update status - use matching_key (int) not order_id (string)
+                _pending_profit_orders[matching_key]['status'] = 'placed'
 
                 return jsonify({
                     'success': True,
@@ -739,7 +745,7 @@ def check_single_order_fill(account_id_key, order_id):
             else:
                 # Preview failed - no preview_id returned
                 logger.error(f"Preview failed for profit order - no preview_id returned")
-                _pending_profit_orders[order_id]['status'] = 'error: preview failed'
+                _pending_profit_orders[matching_key]['status'] = 'error: preview failed'
                 return jsonify({
                     'success': True,
                     'filled': True,
@@ -750,7 +756,7 @@ def check_single_order_fill(account_id_key, order_id):
 
         except Exception as e:
             logger.error(f"Failed to place profit order: {e}")
-            _pending_profit_orders[order_id]['status'] = f'error: {str(e)}'
+            _pending_profit_orders[matching_key]['status'] = f'error: {str(e)}'
             return jsonify({
                 'success': True,
                 'filled': True,
