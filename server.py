@@ -588,6 +588,9 @@ def check_single_order_fill(account_id_key, order_id):
     Called by frontend polling for automatic fill detection.
     """
     try:
+        logger.info(f"Check-fill called for order_id={order_id}, account={account_id_key}")
+        logger.info(f"Pending profit orders keys: {list(_pending_profit_orders.keys())}")
+
         client = _get_authenticated_client()
 
         # Check if this order has a pending profit target
@@ -600,15 +603,18 @@ def check_single_order_fill(account_id_key, order_id):
                 break
 
         if not matching_key:
+            logger.warning(f"No matching profit target for order_id={order_id}")
             return jsonify({
                 'success': True,
                 'filled': False,
                 'message': 'No profit target for this order'
             })
 
+        logger.info(f"Found matching profit target with key={matching_key}")
         profit_order = _pending_profit_orders[matching_key]
 
         if profit_order['status'] != 'waiting':
+            logger.warning(f"Profit order status is {profit_order['status']}, not waiting")
             return jsonify({
                 'success': True,
                 'filled': False,
@@ -617,18 +623,22 @@ def check_single_order_fill(account_id_key, order_id):
 
         # Get order details to check status and fill price
         orders = client.get_orders(account_id_key, status='EXECUTED')
+        logger.info(f"Found {len(orders)} EXECUTED orders")
 
         order_filled = False
         fill_price = None
 
         for order in orders:
+            logger.debug(f"Checking order {order.get('orderId')} against {order_id}")
             if str(order.get('orderId')) == str(order_id):
                 order_filled = True
+                logger.info(f"Order {order_id} found in EXECUTED orders!")
                 # Get fill price from OrderDetail
                 if 'OrderDetail' in order:
                     for detail in order['OrderDetail']:
                         if detail.get('executedPrice'):
                             fill_price = float(detail.get('executedPrice'))
+                            logger.info(f"Fill price: {fill_price}")
                             break
                 break
 
