@@ -64,13 +64,13 @@ def start_login():
         data = request.get_json() or {}
         use_callback = data.get('use_callback', False)
 
-        # Build callback URL if using callback mode
-        callback_url = None
-        if use_callback:
-            # Use the current host for callback
-            host = request.host_url.rstrip('/')
-            callback_url = f"{host}/api/auth/callback"
-            logger.info(f"Using callback URL: {callback_url}")
+        # IMPORTANT: Always use 'oob' for the OAuth request
+        # When a callback URL is registered with E*TRADE, they will automatically
+        # redirect to that URL after user authorization, even though we send 'oob'
+        # This is how E*TRADE's callback system works.
+        callback_url = 'oob'  # Always use oob in the request
+
+        logger.info(f"Using callback mode: {use_callback} (always sending 'oob' to E*TRADE)")
 
         client = ETradeClient()
         auth_data = client.get_authorization_url(callback_url=callback_url)
