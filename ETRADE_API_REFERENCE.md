@@ -1,6 +1,6 @@
 # E*TRADE API Reference Documentation
 
-> **Last Updated:** 2026-02-15
+> **Last Updated:** 2026-02-19
 > **Purpose:** Complete reference for E*TRADE OAuth 1.0a implementation and API endpoints
 
 ---
@@ -9,9 +9,10 @@
 
 1. [OAuth 1.0a Authentication](#oauth-10a-authentication)
 2. [API Endpoints](#api-endpoints)
-3. [Official Python Example Analysis](#official-python-example-analysis)
-4. [Common Issues & Solutions](#common-issues--solutions)
-5. [Token Lifecycle](#token-lifecycle)
+3. [Order Response Structure](#order-response-structure-critical-for-fill-price-extraction)
+4. [Official Python Example Analysis](#official-python-example-analysis)
+5. [Common Issues & Solutions](#common-issues--solutions)
+6. [Token Lifecycle](#token-lifecycle)
 
 ---
 
@@ -137,6 +138,117 @@ oauth_token=%3TiQRgQCRGPo7Xdk6G8QDSEzX0Jsy6sKNcULcDavAGgU%3D
 | `/v1/accounts/{accountIdKey}/orders/preview.json` | POST | Preview order (XML body) |
 | `/v1/accounts/{accountIdKey}/orders/place.json` | POST | Place order (XML body) |
 | `/v1/accounts/{accountIdKey}/orders/cancel.json` | PUT | Cancel order (XML body) |
+
+### Order Response Structure (CRITICAL for Fill Price Extraction)
+
+**API Documentation:** https://apisb.etrade.com/docs/api/order/api-order-v1.html
+
+When fetching orders via `GET /v1/accounts/{accountIdKey}/orders.json`, the response structure is:
+
+```json
+{
+  "OrdersResponse": {
+    "Order": [
+      {
+        "orderId": 1234567890,
+        "orderValue": 150.00,
+        "status": "EXECUTED",
+        "OrderDetail": [
+          {
+            "orderStatus": "EXECUTED",
+            "placedTime": 1739962800000,
+            "orderTerm": "GOOD_FOR_DAY",
+            "limitPrice": 150.00,
+            "Instrument": [
+              {
+                "product": {
+                  "symbol": "AAPL",
+                  "typeCode": "EQUITY"
+                },
+                "orderAction": "BUY",
+                "orderedQuantity": 1,
+                "filledQuantity": 1,
+                "averageExecutionPrice": 149.95
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Instrument Object Properties
+
+The `Instrument` object inside `OrderDetail` contains the execution details:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `averageExecutionPrice` | number | **The average execution/fill price** - Use this for fill price! |
+| `filledQuantity` | number | The number of shares actually filled |
+| `orderedQuantity` | number | The number of shares ordered |
+| `orderAction` | string | Order action: `BUY`, `SELL`, `BUY_TO_COVER`, `SELL_SHORT` |
+| `product.symbol` | string | The ticker symbol |
+| `product.typeCode` | string | Security type: `EQUITY`, `OPTION`, etc. |
+
+### Order Status Values
+
+| Status | Description |
+|--------|-------------|
+| `OPEN` | Order is active and waiting to be filled |
+| `EXECUTED` | Order has been completely filled |
+| `CANCELLED` | Order was cancelled |
+| `INDIVIDUAL_FILLS` | Partially filled (check individual fills) |
+| `EXPIRED` | Order expired (e.g., good-for-day at market close) |
+| `REJECTED` | Order was rejected |
+
+### Correct Way to Extract Fill Price
+
+```python
+def get_fill_price(order):
+    """
+    Extract fill price from E*TRADE order response.
+
+    The fill price is in: order['OrderDetail'][i]['Instrument'][i]['averageExecutionPrice']
+
+    Returns float or None if not found.
+    """
+    fill_price = None
+
+    if 'OrderDetail' in order:
+        for detail in order['OrderDetail']:
+            if 'Instrument' in detail:
+                for inst in detail['Instrument']:
+                    # averageExecutionPrice is the correct field per E*TRADE API docs
+                    if inst.get('averageExecutionPrice'):
+                        fill_price = float(inst.get('averageExecutionPrice'))
+                        break
+            if fill_price is not None:
+                break
+
+    return fill_price
+```
+
+### Common Mistakes (DO NOT DO THIS)
+
+```python
+# WRONG - executedPrice doesn't exist at OrderDetail level
+fill_price = order['OrderDetail'][0].get('executedPrice')  # Returns None!
+
+# WRONG - Looking at wrong level
+fill_price = order.get('executedPrice')  # This field doesn't exist!
+
+# CORRECT - Use averageExecutionPrice inside Instrument
+fill_price = order['OrderDetail'][0]['Instrument'][0]['averageExecutionPrice']
+```
+
+### Reference Implementation
+
+See `server.py` function `check_single_order_fill()` for working implementation:
+- Uses `Instrument.averageExecutionPrice` per E*TRADE API documentation
+- Handles nested structure properly
+- Falls back to other field names for backwards compatibility
 
 ### Required Headers for API Calls
 
@@ -407,6 +519,7 @@ Location: `/opt/miniconda3/lib/python3.13/site-packages/pyetrade/order.py`
 
 ## References
 
+- [E*TRADE Order API Documentation](https://apisb.etrade.com/docs/api/order/api-order-v1.html) - Instrument object, order response structure
 - [E*TRADE Request Token Documentation](https://apisb.etrade.com/docs/api/authorization/request_token.html)
 - [E*TRADE Get Access Token Documentation](https://apisb.etrade.com/docs/api/authorization/get_access_token.html)
 - [E*TRADE Official Python Example](~/Downloads/EtradePythonClient/)

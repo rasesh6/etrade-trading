@@ -1,6 +1,6 @@
 # E*TRADE Trading System - Troubleshooting Guide
 
-> **Last Updated:** 2026-02-18
+> **Last Updated:** 2026-02-19
 > **Current Version:** v1.3.2-auto-profit
 > **Environment:** PRODUCTION
 > **Purpose:** Quick reference for debugging issues in future sessions
@@ -285,6 +285,53 @@ E*TRADE requires callback URLs to be pre-registered in the developer portal. The
 Contact E*TRADE developer support to register callback URL. See `etrade_callback_support_request.txt` for template.
 
 **Current State:** Using manual verification code flow (oob)
+
+---
+
+### Issue 13: Fill Price Returns None / Profit Order Not Placed (CRITICAL BUG - FIXED)
+
+**Symptoms:**
+- Order fills successfully
+- Profit order not placed
+- Error: `unsupported operand type(s) for +: 'NoneType' and 'float'`
+- `executedPrice` returns None
+
+**Root Cause:**
+Wrong field name used for fill price. E*TRADE API uses `averageExecutionPrice` inside the `Instrument` object, NOT `executedPrice` at OrderDetail level.
+
+**Wrong Approach:**
+```python
+# WRONG - This field doesn't exist at this level
+fill_price = order['OrderDetail'][0].get('executedPrice')  # Returns None!
+```
+
+**Correct Approach:**
+```python
+# CORRECT - Use averageExecutionPrice inside Instrument
+for detail in order['OrderDetail']:
+    if 'Instrument' in detail:
+        for inst in detail['Instrument']:
+            if inst.get('averageExecutionPrice'):
+                fill_price = float(inst.get('averageExecutionPrice'))
+                break
+```
+
+**API Response Structure:**
+```
+Order
+  └── OrderDetail[]
+        └── Instrument[]
+              └── averageExecutionPrice  <-- This is the fill price!
+              └── filledQuantity
+              └── orderedQuantity
+              └── orderAction
+```
+
+**Reference:** E*TRADE API docs at https://apisb.etrade.com/docs/api/order/api-order-v1.html
+
+**File:** `server.py` function `check_single_order_fill()`
+
+**Commit:** `4feb646`
 
 ---
 
