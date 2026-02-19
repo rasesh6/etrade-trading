@@ -100,34 +100,22 @@ async function startLogin() {
     btn.disabled = true;
     btn.textContent = 'Connecting...';
 
-    // Open popup SYNCHRONOUSLY during click event to avoid popup blocker
-    const popup = window.open('about:blank', 'etrade-auth', 'width=800,height=600,scrollbars=yes,resizable=yes');
-
     try {
         const response = await fetch('/api/auth/login', { method: 'POST' });
         const data = await response.json();
 
         if (data.success) {
-            // Write redirect page to popup (more reliable than setting location.href)
-            if (popup && !popup.closed) {
-                popup.document.write(
-                    '<html><head><title>Redirecting to E*TRADE...</title></head>' +
-                    '<body style="font-family:Arial,sans-serif;text-align:center;padding:50px;">' +
-                    '<h3>Redirecting to E*TRADE...</h3>' +
-                    '<p>If not redirected, <a href="' + data.authorize_url + '" target="_blank">click here</a></p>' +
-                    '<script>window.location.href = "' + data.authorize_url + '";<\/script>' +
-                    '</body></html>'
-                );
-                popup.document.close();
-            }
+            // Open E*TRADE in a new tab (more reliable than popup)
+            window.open(data.authorize_url, '_blank');
 
-            // Prompt user for verification code (this blocks until user responds)
+            // Prompt user for verification code
             const verifierCode = prompt(
-                'A popup window opened for E*TRADE authorization.\n\n' +
-                '1. Log in to E*TRADE and accept the authorization\n' +
-                '2. Copy the verification code shown on the page\n' +
-                '3. Paste the code below and click OK:\n\n' +
-                '(If popup was blocked, copy this URL: ' + data.authorize_url + ')'
+                'E*TRADE authorization page opened in a new tab.\n\n' +
+                '1. Switch to the E*TRADE tab and log in\n' +
+                '2. Accept the authorization\n' +
+                '3. Copy the verification code shown\n' +
+                '4. Come back here and paste the code below:\n\n' +
+                '(If no new tab opened, copy this URL:\n' + data.authorize_url + ')'
             );
 
             if (verifierCode && verifierCode.trim()) {
@@ -153,19 +141,12 @@ async function startLogin() {
             } else {
                 alert('Verification code is required. Please try again.');
             }
-
-            // Close popup after user is done
-            if (popup && !popup.closed) {
-                popup.close();
-            }
         } else {
-            if (popup && !popup.closed) popup.close();
             alert('Failed to start login: ' + data.error);
         }
 
     } catch (error) {
         console.error('Start login failed:', error);
-        if (popup && !popup.closed) popup.close();
         alert('Failed to start login: ' + error.message);
     }
 
