@@ -1,14 +1,24 @@
 # E*TRADE Trading System - Version History
 
-## Current Version: v1.3.3-auto-profit
+## Current Version: v1.3.4-auto-profit
 
-**Status: WORKING - Auto Fill Checking & Offset-Based Profit Targets**
+**Status: ✅ WORKING - Full Profit Order Flow Verified**
 
-**Commit:** 3eaa205
+**Commit:** `2008f54`
 **Date:** 2026-02-19
 **Deployed At:** https://web-production-9f73cd.up.railway.app
 **Environment:** PRODUCTION (real trading)
 **Timezone:** All times in **CST (Central Standard Time)** unless otherwise noted
+
+---
+
+## ⭐ WORKING VERSION - DO NOT DELETE
+
+**To restore this working version:**
+```bash
+git checkout 2008f54
+git push origin main --force
+```
 
 ---
 
@@ -26,6 +36,47 @@
 | Profit Target (Offset) | ✅ WORKING | $ or % offset from fill price |
 | Auto Fill Checking | ✅ WORKING | Polls every 500ms (v1.3.2) |
 | Auto Cancel on Timeout | ✅ WORKING | Cancel if not filled within timeout |
+
+---
+
+## v1.3.4 - Fixed KeyError in Profit Order Flow (2026-02-19) ⭐ WORKING
+
+### Bug Fixed:
+**KeyError when accessing _pending_profit_orders with string order_id**
+
+**Problem:**
+- `order_id` from URL parameter is a string ('54')
+- Dictionary keys stored as integers (54)
+- `order_id in _pending_profit_orders` always returned False
+- KeyError `'54'` when trying to update status after profit order preview
+
+**Result:**
+- Order would fill, profit order would be placed successfully
+- But UI would show "cancelled" because check-fill crashed with KeyError
+- Frontend never received "filled" response
+
+**Solution:**
+Use `matching_key` (integer) instead of `order_id` (string) for all dictionary access:
+```python
+# Find matching key with correct type
+matching_key = None
+for k in _pending_profit_orders.keys():
+    if str(k) == str(order_id):
+        matching_key = k
+        break
+
+# Use matching_key for all dict operations
+_pending_profit_orders[matching_key]['status'] = 'placed'
+```
+
+**Fixed in:**
+- `check_single_order_fill()`: Lines 729, 742, 753
+- `cancel_order()`: Line 547
+
+**Verified Working:**
+- Order 56 filled at $63.80
+- Profit order placed at $63.84
+- UI correctly showed: "✅ Order filled @ $63.80. Profit order placed @ $63.84"
 
 ---
 
@@ -55,7 +106,8 @@ Reordered the polling logic:
 
 | Version | Date | Status | Key Changes |
 |---------|------|--------|-------------|
-| v1.3.3 | 2026-02-19 | ✅ CURRENT | Fixed UI polling order (check fill BEFORE timeout), 500ms polling |
+| v1.3.4 | 2026-02-19 | ✅ CURRENT | **WORKING** - Fixed KeyError in profit order placement |
+| v1.3.3 | 2026-02-19 | Working | Fixed UI polling order (check fill BEFORE timeout), 500ms polling |
 | v1.3.2 | 2026-02-18 | Working | Faster fill polling (500ms instead of 2s) |
 | v1.3.1 | 2026-02-18 | Working | Fixed order_id type mismatch in check-fill |
 | v1.3.0 | 2026-02-18 | Working | Offset-based profit, auto fill checking, PRODUCTION mode |

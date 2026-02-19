@@ -1,7 +1,7 @@
 # E*TRADE Trading System - Troubleshooting Guide
 
 > **Last Updated:** 2026-02-19
-> **Current Version:** v1.3.3-auto-profit
+> **Current Version:** v1.3.4-auto-profit ⭐ WORKING
 > **Environment:** PRODUCTION
 > **Timezone:** All times in **CST (Central Standard Time)** unless otherwise noted
 > **Purpose:** Quick reference for debugging issues in future sessions
@@ -389,6 +389,14 @@ if "previewId" in kwargs:
 If a fix breaks something:
 ```bash
 cd ~/Projects/etrade
+
+# ⭐ Rollback to v1.3.4 (CURRENT WORKING VERSION - KeyError fix)
+git checkout 2008f54
+git push origin main --force
+
+# Rollback to v1.3.3 (UI polling order fix)
+git checkout 3eaa205
+git push origin main --force
 
 # Rollback to v1.3.2 (500ms polling)
 git checkout eb89b98
