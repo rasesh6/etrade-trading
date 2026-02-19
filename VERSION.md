@@ -12,6 +12,19 @@
 
 ---
 
+## ⭐ LATEST WORKING VERSION
+
+**To restore this working version:**
+```bash
+cd ~/Projects/etrade
+git checkout 2008f54
+git push origin main --force
+```
+
+**Ask Claude to restore:** "Please restore the working version v1.3.4 (commit 2008f54)"
+
+---
+
 ## ⭐ WORKING VERSION - DO NOT DELETE
 
 **To restore this working version:**

@@ -2,9 +2,24 @@
 
 > **Last Updated:** 2026-02-19
 > **Current Version:** v1.3.4-auto-profit ⭐ WORKING
+> **Working Commit:** `2008f54`
 > **Environment:** PRODUCTION
 > **Timezone:** All times in **CST (Central Standard Time)** unless otherwise noted
 > **Purpose:** Quick reference for debugging issues in future sessions
+
+---
+
+## ⭐ RESTORE WORKING VERSION
+
+If something breaks, restore to the last known working version:
+
+```bash
+cd ~/Projects/etrade
+git checkout 2008f54
+git push origin main --force
+```
+
+**Or ask Claude:** "Please restore the working version v1.3.4 (commit 2008f54)"
 
 ---
 
