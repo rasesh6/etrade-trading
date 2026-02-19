@@ -736,6 +736,17 @@ def check_single_order_fill(account_id_key, order_id):
                     'profit_order_placed': True,
                     'message': f"Filled at {fill_price}, profit order placed at {profit_price}"
                 })
+            else:
+                # Preview failed - no preview_id returned
+                logger.error(f"Preview failed for profit order - no preview_id returned")
+                _pending_profit_orders[order_id]['status'] = 'error: preview failed'
+                return jsonify({
+                    'success': True,
+                    'filled': True,
+                    'fill_price': fill_price,
+                    'profit_order_placed': False,
+                    'error': 'Preview failed - no preview_id returned'
+                })
 
         except Exception as e:
             logger.error(f"Failed to place profit order: {e}")
