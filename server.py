@@ -61,23 +61,48 @@ def auth_status():
 def start_login():
     """Start OAuth login flow - get authorization URL"""
     try:
+        data = request.get_json() or {}
+        use_callback = data.get('use_callback', False)
+
+        # Build callback URL if using callback mode
+        callback_url = None
+        if use_callback:
+            # Use the current host for callback
+            host = request.host_url.rstrip('/')
+            callback_url = f"{host}/api/auth/callback"
+            logger.info(f"Using callback URL: {callback_url}")
+
         client = ETradeClient()
-        auth_data = client.get_authorization_url()
+        auth_data = client.get_authorization_url(callback_url=callback_url)
 
         # Store request tokens for later use
+        # Key by request_token for callback mode, or flow_id for manual mode
         import secrets
         flow_id = secrets.token_urlsafe(16)
+
+        # Store by both flow_id (for manual mode) and request_token (for callback mode)
         _request_tokens[flow_id] = {
             'request_token': auth_data['request_token'],
             'request_token_secret': auth_data['request_token_secret']
         }
+        _request_tokens[auth_data['request_token']] = {
+            'request_token': auth_data['request_token'],
+            'request_token_secret': auth_data['request_token_secret']
+        }
 
-        return jsonify({
+        response_data = {
             'success': True,
             'authorize_url': auth_data['authorize_url'],
             'flow_id': flow_id,
-            'message': 'Please visit the URL, authorize, and enter the verification code'
-        })
+            'use_callback': use_callback
+        }
+
+        if use_callback:
+            response_data['message'] = 'Redirecting to E*TRADE for authorization...'
+        else:
+            response_data['message'] = 'Please visit the URL, authorize, and enter the verification code'
+
+        return jsonify(response_data)
 
     except Exception as e:
         logger.error(f"Login start failed: {e}")
@@ -124,6 +149,56 @@ def verify_code():
     except Exception as e:
         logger.error(f"Verification failed: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/auth/callback')
+def oauth_callback():
+    """Handle OAuth callback from E*TRADE after user authorizes"""
+    try:
+        # E*TRADE sends oauth_token and oauth_verifier in the callback
+        oauth_token = request.args.get('oauth_token', '')
+        oauth_verifier = request.args.get('oauth_verifier', '')
+
+        logger.info(f"OAuth callback received - token: {oauth_token[:20] if oauth_token else 'None'}...")
+
+        if not oauth_token or not oauth_verifier:
+            error_msg = request.args.get('oauth_problem', 'Missing OAuth parameters')
+            logger.error(f"OAuth callback error: {error_msg}")
+            # Redirect to frontend with error
+            return redirect(f"/?auth_error={error_msg}")
+
+        # Look up the stored request token secret
+        # The key is the oauth_token (request token)
+        if oauth_token not in _request_tokens:
+            logger.error(f"Request token not found in stored tokens")
+            return redirect("/?auth_error=Invalid or expired session. Please try again.")
+
+        # Get stored request tokens
+        tokens = _request_tokens.pop(oauth_token)
+
+        # Complete authentication
+        client = ETradeClient()
+        result = client.complete_authentication(
+            oauth_verifier,
+            oauth_token,
+            tokens['request_token_secret']
+        )
+
+        # Save tokens to storage
+        token_manager = get_token_manager()
+        token_manager.save_tokens(
+            result['access_token'],
+            result['access_token_secret']
+        )
+
+        logger.info("OAuth callback authentication successful!")
+
+        # Redirect to frontend with success
+        return redirect("/?auth_success=true")
+
+    except Exception as e:
+        logger.error(f"OAuth callback failed: {e}")
+        return redirect(f"/?auth_error={str(e)}")
 
 
 @app.route('/api/auth/logout', methods=['POST'])

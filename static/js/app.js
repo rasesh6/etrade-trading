@@ -15,7 +15,41 @@ document.addEventListener('DOMContentLoaded', () => {
     checkAuthStatus();
     setupEventListeners();
     updateOrderSummary();
+    handleCallbackResult();
 });
+
+function handleCallbackResult() {
+    // Check for OAuth callback result in URL
+    const urlParams = new URLSearchParams(window.location.search);
+
+    if (urlParams.get('auth_success') === 'true') {
+        // Clear the URL parameter
+        window.history.replaceState({}, document.title, window.location.pathname);
+        // Show success message
+        showAuthMessage('success', 'Authentication successful! You are now connected to E*TRADE.');
+        // Refresh auth status
+        checkAuthStatus();
+    } else if (urlParams.get('auth_error')) {
+        const error = urlParams.get('auth_error');
+        // Clear the URL parameter
+        window.history.replaceState({}, document.title, window.location.pathname);
+        // Show error message
+        showAuthMessage('error', 'Authentication failed: ' + error);
+    }
+}
+
+function showAuthMessage(type, message) {
+    const area = document.getElementById('response-area');
+    const content = document.getElementById('response-content');
+
+    if (area && content) {
+        area.className = 'response-area ' + type;
+        area.style.display = 'block';
+        content.innerHTML = `<p class="${type === 'success' ? 'success-text' : 'error-text'}">${message}</p>`;
+    } else {
+        alert(message);
+    }
+}
 
 function setupEventListeners() {
     // Order form inputs
@@ -76,21 +110,31 @@ function updateAuthUI(data) {
     }
 }
 
-async function startLogin() {
+async function startLogin(useCallback = true) {
     try {
         const btn = event.target;
         btn.disabled = true;
         btn.textContent = 'Starting...';
 
-        const response = await fetch('/api/auth/login', { method: 'POST' });
+        const response = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ use_callback: useCallback })
+        });
         const data = await response.json();
 
         if (data.success) {
-            document.getElementById('auth-url').href = data.authorize_url;
-            document.getElementById('flow-id').value = data.flow_id;
+            if (data.use_callback) {
+                // Callback mode: redirect directly to E*TRADE
+                window.location.href = data.authorize_url;
+            } else {
+                // Manual mode: show the auth URL and verification code input
+                document.getElementById('auth-url').href = data.authorize_url;
+                document.getElementById('flow-id').value = data.flow_id;
 
-            document.getElementById('auth-not-authenticated').style.display = 'none';
-            document.getElementById('auth-flow').style.display = 'block';
+                document.getElementById('auth-not-authenticated').style.display = 'none';
+                document.getElementById('auth-flow').style.display = 'block';
+            }
         } else {
             alert('Failed to start login: ' + data.error);
         }
