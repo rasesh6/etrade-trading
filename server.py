@@ -68,10 +68,19 @@ def start_login():
         client = ETradeClient()
         auth_data = client.get_authorization_url(callback_url=None)  # Uses 'oob' by default
 
+        # Store request tokens for verify step (keyed by request token as flow_id)
+        request_token = auth_data['request_token']
+        _request_tokens[request_token] = {
+            'request_token': request_token,
+            'request_token_secret': auth_data['request_token_secret'],
+            'created_at': datetime.utcnow().isoformat()
+        }
+        logger.info(f"Stored request token for flow_id: {request_token[:20]}...")
+
         return jsonify({
             'success': True,
             'authorize_url': auth_data['authorize_url'],
-            'request_token': auth_data['request_token'],  # Needed for verify step
+            'flow_id': request_token,  # Frontend sends this back with verification code
             'message': 'Please visit the authorization URL and enter the verification code'
         })
 

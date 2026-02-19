@@ -105,9 +105,55 @@ async function startLogin() {
         const data = await response.json();
 
         if (data.success) {
-            // Redirect to E*TRADE authorization page
-            // User will be redirected back to our callback URL automatically
-            window.location.href = data.authorize_url;
+            // Open E*TRADE authorization page in a popup window
+            const popup = window.open(
+                data.authorize_url,
+                'etrade-auth',
+                'width=800,height=600,scrollbars=yes,resizable=yes'
+            );
+
+            // Prompt user for verification code
+            const verifierCode = prompt(
+                'A popup window opened for E*TRADE authorization.\n\n' +
+                '1. Log in to E*TRADE and accept the authorization\n' +
+                '2. Copy the verification code shown on the page\n' +
+                '3. Paste the code below and click OK:\n\n' +
+                '(If popup was blocked, click: ' + data.authorize_url + ')'
+            );
+
+            if (verifierCode && verifierCode.trim()) {
+                // Send verification code to complete authentication
+                const verifyResponse = await fetch('/api/auth/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        verifier_code: verifierCode.trim(),
+                        flow_id: data.flow_id
+                    })
+                });
+                const verifyData = await verifyResponse.json();
+
+                if (verifyData.success) {
+                    alert('Authentication successful! You can now place orders.');
+                    checkAuthStatus();
+                } else {
+                    alert('Verification failed: ' + verifyData.error);
+                }
+            } else if (verifierCode === null) {
+                // User cancelled
+                btn.disabled = false;
+                btn.textContent = 'Connect to E*TRADE';
+            } else {
+                alert('Verification code is required. Please try again.');
+            }
+
+            // Close popup if still open
+            if (popup && !popup.closed) {
+                popup.close();
+            }
+
+            btn.disabled = false;
+            btn.textContent = 'Connect to E*TRADE';
         } else {
             alert('Failed to start login: ' + data.error);
             btn.disabled = false;
