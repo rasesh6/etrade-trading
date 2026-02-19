@@ -61,27 +61,22 @@ def auth_status():
 def start_login():
     """Start OAuth login flow - get authorization URL"""
     try:
-        # Use manual (oob) OAuth flow - callback URL not registered with E*TRADE
-        # See TROUBLESHOOTING.md Issue 12 for details
-        logger.info("Starting OAuth login with manual (oob) flow")
-
         client = ETradeClient()
-        auth_data = client.get_authorization_url(callback_url=None)  # Uses 'oob' by default
+        auth_data = client.get_authorization_url()
 
-        # Store request tokens for verify step (keyed by request token as flow_id)
-        request_token = auth_data['request_token']
-        _request_tokens[request_token] = {
-            'request_token': request_token,
-            'request_token_secret': auth_data['request_token_secret'],
-            'created_at': datetime.utcnow().isoformat()
+        # Store request tokens for later use
+        import secrets
+        flow_id = secrets.token_urlsafe(16)
+        _request_tokens[flow_id] = {
+            'request_token': auth_data['request_token'],
+            'request_token_secret': auth_data['request_token_secret']
         }
-        logger.info(f"Stored request token for flow_id: {request_token[:20]}...")
 
         return jsonify({
             'success': True,
             'authorize_url': auth_data['authorize_url'],
-            'flow_id': request_token,  # Frontend sends this back with verification code
-            'message': 'Please visit the authorization URL and enter the verification code'
+            'flow_id': flow_id,
+            'message': 'Please visit the URL, authorize, and enter the verification code'
         })
 
     except Exception as e:
@@ -129,53 +124,6 @@ def verify_code():
     except Exception as e:
         logger.error(f"Verification failed: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@app.route('/api/auth/callback')
-def oauth_callback():
-    """
-    OAuth callback endpoint - receives oauth_token and oauth_verifier from E*TRADE.
-    This is called automatically after user authorizes on E*TRADE website.
-    """
-    try:
-        oauth_token = request.args.get('oauth_token', '')
-        oauth_verifier = request.args.get('oauth_verifier', '')
-
-        logger.info(f"OAuth callback received: token={oauth_token[:20] if oauth_token else 'None'}..., verifier={oauth_verifier[:10] if oauth_verifier else 'None'}...")
-
-        if not oauth_token or not oauth_verifier:
-            logger.error(f"Missing OAuth parameters: token={oauth_token}, verifier={oauth_verifier}")
-            return redirect('/?auth_error=Missing OAuth parameters')
-
-        # Look up stored request tokens
-        if oauth_token not in _request_tokens:
-            logger.error(f"Request token not found in stored tokens. Stored keys: {list(_request_tokens.keys())}")
-            return redirect('/?auth_error=Invalid or expired request token')
-
-        # Get stored request tokens
-        tokens = _request_tokens.pop(oauth_token)
-
-        # Complete authentication
-        client = ETradeClient()
-        result = client.complete_authentication(
-            oauth_verifier,
-            tokens['request_token'],
-            tokens['request_token_secret']
-        )
-
-        # Save tokens to storage
-        token_manager = get_token_manager()
-        token_manager.save_tokens(
-            result['access_token'],
-            result['access_token_secret']
-        )
-
-        logger.info("OAuth callback authentication successful!")
-        return redirect('/?auth_success=true')
-
-    except Exception as e:
-        logger.error(f"OAuth callback failed: {e}")
-        return redirect(f'/?auth_error={str(e)}')
 
 
 @app.route('/api/auth/logout', methods=['POST'])
@@ -639,35 +587,20 @@ def check_single_order_fill(account_id_key, order_id):
     Check if a specific order is filled and place profit order if so.
     Called by frontend polling for automatic fill detection.
     """
-    logger.info(f"check-fill called: account={account_id_key}, order_id={order_id}")
-    logger.info(f"Pending profit orders keys: {list(_pending_profit_orders.keys())}")
-    logger.info(f"order_id type: {type(order_id)}, stored key types: {[type(k) for k in _pending_profit_orders.keys()]}")
     try:
         client = _get_authenticated_client()
 
         # Check if this order has a pending profit target
-        # Note: order_id from URL is string, stored keys may be int - convert for comparison
-        order_id_str = str(order_id)
-        matching_key = None
-        for k in _pending_profit_orders.keys():
-            if str(k) == order_id_str:
-                matching_key = k
-                break
-
-        if not matching_key:
-            logger.info(f"Order {order_id} not in pending profit orders")
+        if order_id not in _pending_profit_orders:
             return jsonify({
                 'success': True,
                 'filled': False,
                 'message': 'No profit target for this order'
             })
 
-        # Use the actual key from the dict (may be int or string)
-        profit_order = _pending_profit_orders[matching_key]
-        logger.info(f"Profit order found using key {matching_key}, status={profit_order.get('status')}")
+        profit_order = _pending_profit_orders[order_id]
 
         if profit_order['status'] != 'waiting':
-            logger.info(f"Profit order status is not 'waiting', returning early")
             return jsonify({
                 'success': True,
                 'filled': False,
@@ -675,15 +608,12 @@ def check_single_order_fill(account_id_key, order_id):
             })
 
         # Get order details to check status and fill price
-        logger.info(f"Fetching EXECUTED orders for account {account_id_key}")
         orders = client.get_orders(account_id_key, status='EXECUTED')
-        logger.info(f"Found {len(orders)} EXECUTED orders")
 
         order_filled = False
         fill_price = None
 
         for order in orders:
-            logger.info(f"Checking order {order.get('orderId')} against {order_id}")
             if str(order.get('orderId')) == str(order_id):
                 order_filled = True
                 # Get fill price from OrderDetail
@@ -692,11 +622,9 @@ def check_single_order_fill(account_id_key, order_id):
                         if detail.get('executedPrice'):
                             fill_price = float(detail.get('executedPrice'))
                             break
-                logger.info(f"Order {order_id} found! Fill price: {fill_price}")
                 break
 
         if not order_filled:
-            logger.info(f"Order {order_id} not found in EXECUTED orders")
             return jsonify({
                 'success': True,
                 'filled': False,

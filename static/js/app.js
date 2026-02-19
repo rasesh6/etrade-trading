@@ -201,9 +201,13 @@ async function loadAccountInfo() {
         return;
     }
 
-    // Load balance and positions in parallel
+    // Load balance
     loadBalance(currentAccountIdKey);
+
+    // Load positions
     loadPositions(currentAccountIdKey);
+
+    // Load open orders
     loadOrders(currentAccountIdKey);
 }
 
@@ -214,9 +218,9 @@ async function loadBalance(accountIdKey) {
 
         if (data.success) {
             const balance = data.balance;
-            document.getElementById('balance-total').textContent = formatCurrency(balance.net_account_value);
-            document.getElementById('balance-cash').textContent = formatCurrency(balance.cash_available);
-            document.getElementById('balance-buying-power').textContent = formatCurrency(balance.buying_power);
+            document.getElementById('net-value').textContent = formatCurrency(balance.net_account_value);
+            document.getElementById('cash-available').textContent = formatCurrency(balance.cash_available);
+            document.getElementById('buying-power').textContent = formatCurrency(balance.margin_buying_power);
             document.getElementById('account-balance').style.display = 'block';
         }
     } catch (error) {
@@ -226,26 +230,23 @@ async function loadBalance(accountIdKey) {
 
 async function loadPositions(accountIdKey) {
     try {
-        const response = await fetch(`/api/accounts/${accountIdKey}/positions`);
+        const response = await fetch(`/api/accounts/${accountIdKey}/portfolio`);
         const data = await response.json();
 
         const container = document.getElementById('positions-list');
 
         if (data.success && data.positions.length > 0) {
-            let html = '<table class="data-table"><thead><tr><th>Symbol</th><th>Qty</th><th>Value</th><th>P&L</th></tr></thead><tbody>';
-
-            data.positions.forEach(pos => {
-                const pnlClass = pos.total_gain_loss >= 0 ? 'positive' : 'negative';
-                html += `<tr>
-                    <td><strong>${pos.symbol}</strong></td>
-                    <td>${pos.quantity}</td>
-                    <td>${formatCurrency(pos.market_value)}</td>
-                    <td class="${pnlClass}">${formatCurrency(pos.total_gain_loss)}</td>
-                </tr>`;
-            });
-
-            html += '</tbody></table>';
-            container.innerHTML = html;
+            container.innerHTML = data.positions.map(pos => `
+                <div class="position-item">
+                    <div>
+                        <span class="position-symbol">${pos.symbol || 'N/A'}</span>
+                        <span class="position-qty"> x ${pos.quantity || 0}</span>
+                    </div>
+                    <div class="position-gain ${pos.total_gain >= 0 ? 'positive' : 'negative'}">
+                        ${formatCurrency(pos.total_gain)}
+                    </div>
+                </div>
+            `).join('');
         } else {
             container.innerHTML = '<p class="placeholder-text">No positions</p>';
         }
@@ -256,26 +257,26 @@ async function loadPositions(accountIdKey) {
 
 async function loadOrders(accountIdKey) {
     try {
-        const response = await fetch(`/api/accounts/${accountIdKey}/orders`);
+        const response = await fetch(`/api/accounts/${accountIdKey}/orders?status=OPEN`);
         const data = await response.json();
 
         const container = document.getElementById('orders-list');
 
         if (data.success && data.orders.length > 0) {
-            let html = '<table class="data-table"><thead><tr><th>Symbol</th><th>Action</th><th>Qty</th><th>Price</th><th>Status</th></tr></thead><tbody>';
-
-            data.orders.forEach(order => {
-                html += `<tr>
-                    <td><strong>${order.symbol}</strong></td>
-                    <td>${order.action}</td>
-                    <td>${order.quantity}</td>
-                    <td>${formatPrice(order.price)}</td>
-                    <td>${order.status}</td>
-                </tr>`;
-            });
-
-            html += '</tbody></table>';
-            container.innerHTML = html;
+            container.innerHTML = data.orders.map(order => `
+                <div class="order-item">
+                    <div>
+                        <span class="order-symbol">${order.symbol || 'N/A'}</span>
+                        <span>${order.action || ''} ${order.quantity || 0}</span>
+                        <span>@ ${order.limit_price || 'MKT'}</span>
+                    </div>
+                    <div class="order-actions">
+                        <button class="btn btn-small btn-danger" onclick="cancelOrder('${accountIdKey}', '${order.order_id}')">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            `).join('');
         } else {
             container.innerHTML = '<p class="placeholder-text">No open orders</p>';
         }
@@ -284,10 +285,32 @@ async function loadOrders(accountIdKey) {
     }
 }
 
+async function cancelOrder(accountIdKey, orderId) {
+    if (!confirm('Are you sure you want to cancel this order?')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/orders/${accountIdKey}/${orderId}/cancel`, {
+            method: 'POST'
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            loadOrders(accountIdKey);
+            showResponse('success', 'Order Cancelled', { message: data.message });
+        } else {
+            alert('Failed to cancel order: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Cancel order failed:', error);
+    }
+}
+
 // ==================== QUOTES ====================
 
 async function fetchQuote() {
-    const symbol = document.getElementById('quote-symbol').value.toUpperCase().trim();
+    const symbol = document.getElementById('quote-symbol').value.trim().toUpperCase();
 
     if (!symbol) {
         alert('Please enter a symbol');
@@ -295,60 +318,63 @@ async function fetchQuote() {
     }
 
     try {
-        const btn = event.target;
-        const originalText = btn.textContent;
-        btn.disabled = true;
-        btn.textContent = 'Loading...';
-
         const response = await fetch(`/api/quote/${symbol}`);
         const data = await response.json();
 
         if (data.success) {
             quoteData = data.quote;
-            displayQuote(quoteData);
+            // IMPORTANT: Use the REQUESTED symbol, not the returned symbol (sandbox returns GOOG for everything)
+            quoteData.display_symbol = symbol;
+            displayQuote(data.quote, symbol);
+
+            // Auto-fill order symbol
+            document.getElementById('order-symbol').value = symbol;
+            updateOrderSummary();
         } else {
             alert('Failed to get quote: ' + data.error);
         }
-
-        btn.disabled = false;
-        btn.textContent = originalText;
-
     } catch (error) {
-        console.error('Quote fetch failed:', error);
-        alert('Failed to get quote: ' + error.message);
+        console.error('Fetch quote failed:', error);
+        alert('Failed to fetch quote: ' + error.message);
     }
 }
 
-function displayQuote(quote) {
-    const container = document.getElementById('quote-display');
-    const changeClass = quote.change >= 0 ? 'positive' : 'negative';
-    const changeSign = quote.change >= 0 ? '+' : '';
+function displayQuote(quote, requestedSymbol) {
+    // Use requested symbol for display (sandbox returns wrong symbol)
+    document.getElementById('q-symbol').textContent = requestedSymbol;
+    document.getElementById('q-last').textContent = formatCurrency(quote.last_price);
 
-    container.innerHTML = `
-        <div class="quote-header">
-            <span class="quote-symbol">${quote.symbol}</span>
-            <span class="quote-price">${formatPrice(quote.last_price)}</span>
-        </div>
-        <div class="quote-details">
-            <span class="quote-change ${changeClass}">${changeSign}${formatPrice(quote.change)} (${changeSign}${quote.change_percent.toFixed(2)}%)</span>
-        </div>
-        <div class="quote-bidask">
-            <span>Bid: ${formatPrice(quote.bid)}</span>
-            <span>Ask: ${formatPrice(quote.ask)}</span>
-            <span>Vol: ${quote.volume.toLocaleString()}</span>
-        </div>
-    `;
-    container.style.display = 'block';
+    // Change
+    const change = quote.change || 0;
+    const changePercent = quote.change_percent || 0;
+    const changeEl = document.getElementById('q-change');
+    changeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePercent}%)`;
+    changeEl.className = 'quote-change ' + (change >= 0 ? 'positive' : 'negative');
+
+    // Bid/Ask
+    document.getElementById('q-bid').textContent = formatCurrency(quote.bid);
+    document.getElementById('q-bid-size').textContent = `x${quote.bid_size || ''}`;
+    document.getElementById('q-ask').textContent = formatCurrency(quote.ask);
+    document.getElementById('q-ask-size').textContent = `x${quote.ask_size || ''}`;
+
+    // Volume & Range
+    document.getElementById('q-volume').textContent = formatNumber(quote.volume);
+    document.getElementById('q-range').textContent = `${quote.low || '-'} - ${quote.high || '-'}`;
+
+    document.getElementById('quote-display').style.display = 'block';
 }
 
 // ==================== ORDER ENTRY ====================
 
-function setSide(side) {
-    currentSide = side;
+function toggleLimitPrice() {
+    const orderType = document.getElementById('order-type').value;
+    const limitSection = document.getElementById('limit-price-section');
 
-    // Update button states
-    document.getElementById('btn-buy').classList.toggle('active', side === 'BUY');
-    document.getElementById('btn-sell').classList.toggle('active', side === 'SELL');
+    if (orderType === 'LIMIT') {
+        limitSection.style.display = 'block';
+    } else {
+        limitSection.style.display = 'none';
+    }
 
     updateOrderSummary();
 }
@@ -357,45 +383,122 @@ function setPriceSource(source) {
     currentPriceSource = source;
 
     // Update button states
-    document.getElementById('btn-market').classList.toggle('active', source === 'market');
-    document.getElementById('btn-limit').classList.toggle('active', source === 'limit');
+    document.querySelectorAll('.price-source-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    document.querySelector(`.price-source-btn[data-source="${source}"]`).classList.add('active');
 
-    // Show/hide limit price input
-    document.getElementById('limit-price-container').style.display = source === 'limit' ? 'block' : 'none';
+    // Show/hide appropriate input
+    const manualInput = document.getElementById('manual-price-input');
+    const marketDisplay = document.getElementById('market-price-display');
+    const label = document.getElementById('price-source-label');
+
+    if (source === 'manual') {
+        manualInput.style.display = 'block';
+        marketDisplay.style.display = 'none';
+    } else {
+        manualInput.style.display = 'none';
+        marketDisplay.style.display = 'block';
+        label.textContent = source.toUpperCase();
+
+        // Update with current quote if available
+        if (quoteData) {
+            const price = source === 'bid' ? quoteData.bid : quoteData.ask;
+            if (price) {
+                label.textContent = `${source.toUpperCase()} (${formatCurrency(price)})`;
+            }
+        }
+    }
 
     updateOrderSummary();
 }
 
-function updateOrderSummary() {
-    const symbol = document.getElementById('order-symbol').value.toUpperCase().trim();
-    const quantity = parseInt(document.getElementById('order-quantity').value) || 0;
-    const limitPrice = parseFloat(document.getElementById('limit-price').value) || 0;
+function setSide(side) {
+    currentSide = side;
 
-    const summary = document.getElementById('order-summary');
-    const action = currentSide === 'BUY' ? 'Buy' : 'Sell';
-    const orderType = currentPriceSource === 'market' ? 'Market' : `Limit @ ${formatPrice(limitPrice)}`;
+    // Update button states
+    document.querySelectorAll('.side-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    document.querySelector(`.side-btn.${side.toLowerCase()}`).classList.add('active');
 
-    summary.innerHTML = `<strong>${action}</strong> ${quantity || 0} shares of <strong>${symbol || '---'}</strong> @ <strong>${orderType}</strong>`;
+    // Update order button
+    const orderBtn = document.getElementById('place-order-btn');
+    orderBtn.className = `btn btn-${side.toLowerCase()}`;
+    orderBtn.textContent = `Place ${side} Order`;
 
-    // Update profit target info
-    const profitEnabled = document.getElementById('profit-enabled').checked;
-    const profitInfo = document.getElementById('profit-info');
-    if (profitEnabled) {
-        const offsetType = document.getElementById('profit-offset-type').value;
-        const offsetValue = parseFloat(document.getElementById('profit-offset-value').value) || 0;
-        profitInfo.textContent = `Profit target: +${offsetValue}${offsetType === 'percent' ? '%' : '$'} from fill price`;
+    updateOrderSummary();
+}
+
+// ==================== PROFIT TARGET ====================
+
+function toggleProfitTarget() {
+    const enabled = document.getElementById('enable-profit-target').checked;
+    const inputDiv = document.getElementById('profit-target-input');
+    inputDiv.style.display = enabled ? 'block' : 'none';
+}
+
+function updateProfitLabel() {
+    const offsetType = document.getElementById('profit-offset-type').value;
+    const label = document.getElementById('profit-offset-label');
+    const prefix = document.getElementById('profit-offset-prefix');
+
+    if (offsetType === 'dollar') {
+        label.textContent = 'Offset ($)';
+        prefix.textContent = '$';
     } else {
-        profitInfo.textContent = '';
+        label.textContent = 'Offset (%)';
+        prefix.textContent = '%';
     }
 }
 
-function toggleProfitOptions() {
-    const enabled = document.getElementById('profit-enabled').checked;
-    document.getElementById('profit-options').style.display = enabled ? 'block' : 'none';
-    updateOrderSummary();
-}
+function updateOrderSummary() {
+    const symbol = document.getElementById('order-symbol').value.toUpperCase() || '-';
+    const quantity = parseInt(document.getElementById('order-quantity').value) || 0;
+    const orderType = document.getElementById('order-type').value;
+    let limitPrice = parseFloat(document.getElementById('limit-price').value) || 0;
 
-// ==================== ORDER PLACEMENT ====================
+    // Update action
+    const actionEl = document.getElementById('sum-action');
+    actionEl.textContent = currentSide;
+    actionEl.className = currentSide === 'BUY' ? 'buy-text' : 'sell-text';
+
+    // Update symbol, quantity, type
+    document.getElementById('sum-symbol').textContent = symbol;
+    document.getElementById('sum-quantity').textContent = quantity;
+    document.getElementById('sum-type').textContent = orderType === 'MARKET' ? 'Market' : 'Limit';
+
+    // Limit price
+    const priceRow = document.getElementById('sum-price-row');
+    const estRow = document.getElementById('sum-est-row');
+
+    if (orderType === 'LIMIT') {
+        priceRow.style.display = 'flex';
+
+        let priceDisplay = '-';
+        if (currentPriceSource === 'manual' && limitPrice > 0) {
+            priceDisplay = formatCurrency(limitPrice);
+        } else if (currentPriceSource === 'bid') {
+            priceDisplay = quoteData?.bid ? `${formatCurrency(quoteData.bid)} (BID)` : 'BID Price';
+            limitPrice = quoteData?.bid || 0;
+        } else if (currentPriceSource === 'ask') {
+            priceDisplay = quoteData?.ask ? `${formatCurrency(quoteData.ask)} (ASK)` : 'ASK Price';
+            limitPrice = quoteData?.ask || 0;
+        }
+        document.getElementById('sum-price').textContent = priceDisplay;
+
+        // Estimated total
+        if (limitPrice > 0 && quantity > 0) {
+            estRow.style.display = 'flex';
+            document.getElementById('sum-est').textContent = formatCurrency(limitPrice * quantity);
+        } else {
+            estRow.style.display = 'none';
+        }
+    } else {
+        priceRow.style.display = 'none';
+        estRow.style.display = 'none';
+    }
+}
 
 async function placeOrder() {
     if (!currentAccountIdKey) {
@@ -403,225 +506,225 @@ async function placeOrder() {
         return;
     }
 
-    const symbol = document.getElementById('order-symbol').value.toUpperCase().trim();
+    const symbol = document.getElementById('order-symbol').value.trim().toUpperCase();
     const quantity = parseInt(document.getElementById('order-quantity').value) || 0;
-    const orderType = currentPriceSource === 'market' ? 'MARKET' : 'LIMIT';
-    const limitPrice = parseFloat(document.getElementById('limit-price').value) || null;
+    const orderType = document.getElementById('order-type').value;
+    let limitPrice = null;
 
     // Validation
     if (!symbol) {
         alert('Please enter a symbol');
         return;
     }
+
     if (quantity <= 0) {
         alert('Please enter a valid quantity');
         return;
     }
-    if (orderType === 'LIMIT' && (!limitPrice || limitPrice <= 0)) {
-        alert('Please enter a valid limit price');
+
+    if (orderType === 'LIMIT') {
+        if (currentPriceSource === 'manual') {
+            limitPrice = parseFloat(document.getElementById('limit-price').value) || 0;
+            if (limitPrice <= 0) {
+                alert('Please enter a valid limit price');
+                return;
+            }
+        }
+        // For bid/ask, server will fetch the price
+    }
+
+    // Check for profit target
+    const enableProfitTarget = document.getElementById('enable-profit-target').checked;
+    const profitOffsetType = enableProfitTarget ? document.getElementById('profit-offset-type').value : null;
+    const profitOffset = enableProfitTarget ? parseFloat(document.getElementById('profit-offset').value) || 0 : null;
+    const fillTimeout = enableProfitTarget ? parseInt(document.getElementById('fill-timeout').value) || 15 : null;
+
+    if (enableProfitTarget && profitOffset <= 0) {
+        alert('Please enter a valid profit offset');
         return;
     }
 
-    // Profit target options
-    const profitEnabled = document.getElementById('profit-enabled').checked;
-    const profitOffsetType = document.getElementById('profit-offset-type').value;
-    const profitOffsetValue = parseFloat(document.getElementById('profit-offset-value').value) || 0;
-    const fillTimeout = parseInt(document.getElementById('fill-timeout').value) || 15;
-
-    const orderData = {
-        account_id_key: currentAccountIdKey,
-        symbol: symbol,
-        quantity: quantity,
-        order_action: currentSide,
-        order_type: orderType,
-        limit_price: limitPrice,
-        profit_target: profitEnabled ? {
-            offset_type: profitOffsetType,
-            offset_value: profitOffsetValue,
-            timeout_seconds: fillTimeout
-        } : null
-    };
+    const btn = document.getElementById('place-order-btn');
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="loading"></span> Placing Order...';
 
     try {
-        const btn = event.target;
-        btn.disabled = true;
-        btn.textContent = 'Placing Order...';
-
-        const response = await fetch('/api/orders/place', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(orderData)
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-            const result = data.result;
-
-            // Show order status card
-            document.getElementById('order-status-card').style.display = 'block';
-            document.getElementById('order-status-symbol').textContent = symbol;
-            document.getElementById('order-status-action').textContent = currentSide;
-            document.getElementById('order-status-qty').textContent = quantity;
-            document.getElementById('order-status-id').textContent = result.order_id || 'Pending';
-
-            if (result.preview_only) {
-                document.getElementById('order-status-status').textContent = 'Preview Only';
-                document.getElementById('order-status-status').className = 'status-pending';
-            } else {
-                document.getElementById('order-status-status').textContent = 'Placed';
-                document.getElementById('order-status-status').className = 'status-pending';
-            }
-
-            // Start fill checking if profit target enabled
-            if (profitEnabled && result.order_id) {
-                startFillChecking(result.order_id, currentAccountIdKey, {
-                    symbol: symbol,
-                    quantity: quantity,
-                    action: currentSide === 'BUY' ? 'SELL' : 'BUY',
-                    offset_type: profitOffsetType,
-                    offset_value: profitOffsetValue
-                }, fillTimeout * 1000);
-            }
-
-            // Refresh orders list
-            loadOrders(currentAccountIdKey);
-
-            alert(`Order placed successfully!\n\nOrder ID: ${result.order_id || 'N/A'}\nPreview ID: ${result.preview_id || 'N/A'}`);
-        } else {
-            alert('Failed to place order: ' + data.error);
-        }
-
-        btn.disabled = false;
-        btn.textContent = 'Place Order';
-
-    } catch (error) {
-        console.error('Order placement failed:', error);
-        alert('Failed to place order: ' + error.message);
-    }
-}
-
-// ==================== FILL CHECKING ====================
-
-function startFillChecking(orderId, accountIdKey, profitOrder, timeoutMs) {
-    const startTime = Date.now();
-    const pollInterval = 500; // Check every 500ms
-    let elapsed = 0;
-
-    const statusEl = document.getElementById('order-status-status');
-    const elapsedEl = document.getElementById('order-status-elapsed');
-
-    document.getElementById('order-status-fill-price').textContent = 'Waiting...';
-    document.getElementById('order-status-profit-order').style.display = 'none';
-
-    const checkFill = async () => {
-        elapsed = (Date.now() - startTime) / 1000;
-        elapsedEl.textContent = `${elapsed.toFixed(1)}s / ${(timeoutMs / 1000).toFixed(0)}s`;
-
-        if (elapsed * 1000 >= timeoutMs) {
-            // Timeout - cancel order
-            statusEl.textContent = 'Timeout - Cancelling...';
-            statusEl.className = 'status-cancelled';
-
-            try {
-                await fetch(`/api/orders/${accountIdKey}/${orderId}`, { method: 'DELETE' });
-                statusEl.textContent = 'Cancelled (No Fill)';
-            } catch (e) {
-                console.error('Cancel failed:', e);
-            }
-
-            fillCheckInterval = null;
-            return;
-        }
-
-        try {
-            const response = await fetch(`/api/orders/${accountIdKey}/${orderId}/fill`);
-            const data = await response.json();
-
-            if (data.filled) {
-                // Order filled!
-                statusEl.textContent = 'FILLED';
-                statusEl.className = 'status-filled';
-                document.getElementById('order-status-fill-price').textContent = formatPrice(data.fill_price);
-
-                // Place profit order
-                if (profitOrder) {
-                    const profitPrice = calculateProfitPrice(data.fill_price, profitOrder.offset_type, profitOrder.offset_value);
-                    await placeProfitOrder(accountIdKey, profitOrder, profitPrice, data.fill_price);
-                }
-
-                fillCheckInterval = null;
-                loadOrders(accountIdKey);
-                return;
-            }
-
-            // Continue polling
-            fillCheckInterval = setTimeout(checkFill, pollInterval);
-
-        } catch (error) {
-            console.error('Fill check failed:', error);
-            fillCheckInterval = setTimeout(checkFill, pollInterval);
-        }
-    };
-
-    // Start polling
-    fillCheckInterval = setTimeout(checkFill, pollInterval);
-}
-
-function calculateProfitPrice(fillPrice, offsetType, offsetValue) {
-    if (offsetType === 'percent') {
-        return fillPrice * (1 + offsetValue / 100);
-    } else {
-        return fillPrice + offsetValue;
-    }
-}
-
-async function placeProfitOrder(accountIdKey, profitOrder, profitPrice, fillPrice) {
-    const profitEl = document.getElementById('order-status-profit-order');
-
-    try {
-        profitEl.style.display = 'block';
-        profitEl.innerHTML = `<span class="profit-label">Profit Order:</span> Placing...`;
-
         const response = await fetch('/api/orders/place', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                account_id_key: accountIdKey,
-                symbol: profitOrder.symbol,
-                quantity: profitOrder.quantity,
-                order_action: profitOrder.action,
-                order_type: 'LIMIT',
-                limit_price: profitPrice,
-                profit_target: null
+                account_id_key: currentAccountIdKey,
+                symbol: symbol,
+                quantity: quantity,
+                side: currentSide,
+                priceType: orderType,
+                limitPrice: limitPrice,
+                limitPriceSource: orderType === 'LIMIT' ? currentPriceSource : null,
+                profit_offset_type: profitOffsetType,
+                profit_offset: profitOffset,
+                fill_timeout: fillTimeout
             })
         });
 
         const data = await response.json();
 
         if (data.success) {
-            profitEl.innerHTML = `<span class="profit-label">Profit Order:</span> ${profitOrder.action} ${profitOrder.quantity} @ ${formatPrice(profitPrice)} (Fill: ${formatPrice(fillPrice)})`;
-            profitEl.className = 'profit-success';
+            showResponse('success', 'Order Placed', data.order);
+            loadOrders(currentAccountIdKey);  // Refresh orders list
+
+            // If profit target enabled, start monitoring
+            if (enableProfitTarget && data.order.order_id) {
+                startOrderMonitoring(
+                    data.order.order_id,
+                    symbol,
+                    quantity,
+                    currentSide,
+                    profitOffsetType,
+                    profitOffset,
+                    fillTimeout
+                );
+            }
         } else {
-            profitEl.innerHTML = `<span class="profit-label">Profit Order:</span> Failed - ${data.error}`;
-            profitEl.className = 'profit-failed';
+            showResponse('error', 'Order Failed', { error: data.error });
         }
 
     } catch (error) {
-        console.error('Profit order failed:', error);
-        profitEl.innerHTML = `<span class="profit-label">Profit Order:</span> Failed - ${error.message}`;
-        profitEl.className = 'profit-failed';
+        console.error('Place order failed:', error);
+        showResponse('error', 'Order Failed', { error: error.message });
     }
+
+    btn.disabled = false;
+    btn.textContent = originalText;
 }
 
-// ==================== HELPERS ====================
+// ==================== ORDER MONITORING (AUTOMATIC FILL CHECK) ====================
+
+function startOrderMonitoring(orderId, symbol, quantity, side, offsetType, offset, timeout) {
+    const statusCard = document.getElementById('order-status-card');
+    const statusContent = document.getElementById('order-status-content');
+
+    statusCard.style.display = 'block';
+
+    let elapsed = 0;
+    const pollInterval = 2000; // Check every 2 seconds
+
+    // Clear any existing interval
+    if (fillCheckInterval) {
+        clearInterval(fillCheckInterval);
+    }
+
+    updateOrderStatus(`Waiting for ${symbol} order to fill... (${elapsed}/${timeout}s)`);
+
+    fillCheckInterval = setInterval(async () => {
+        elapsed += pollInterval / 1000;
+
+        if (elapsed >= timeout) {
+            clearInterval(fillCheckInterval);
+            updateOrderStatus(`Timeout reached. Cancelling order...`);
+
+            // Cancel the order
+            try {
+                await fetch(`/api/orders/${currentAccountIdKey}/${orderId}/cancel`, {
+                    method: 'POST'
+                });
+                updateOrderStatus(`Order cancelled (not filled within ${timeout}s)`, 'error');
+                loadOrders(currentAccountIdKey);
+            } catch (e) {
+                updateOrderStatus(`Failed to cancel order: ${e.message}`, 'error');
+            }
+            return;
+        }
+
+        updateOrderStatus(`Waiting for ${symbol} order to fill... (${elapsed}/${timeout}s)`);
+
+        // Check if order is filled
+        try {
+            const response = await fetch(`/api/orders/${currentAccountIdKey}/check-fill/${orderId}`);
+            const data = await response.json();
+
+            if (data.success && data.filled) {
+                clearInterval(fillCheckInterval);
+
+                if (data.profit_order_placed) {
+                    updateOrderStatus(`✅ Order filled @ ${formatCurrency(data.fill_price)}. Profit order placed @ ${formatCurrency(data.profit_price)}`, 'success');
+                } else {
+                    updateOrderStatus(`✅ Order filled @ ${formatCurrency(data.fill_price)}`, 'success');
+                }
+
+                loadOrders(currentAccountIdKey);
+                loadPositions(currentAccountIdKey);
+            }
+        } catch (e) {
+            console.error('Fill check failed:', e);
+        }
+
+    }, pollInterval);
+}
+
+function updateOrderStatus(message, type = 'info') {
+    const statusContent = document.getElementById('order-status-content');
+    let className = '';
+    if (type === 'success') className = 'success-text';
+    if (type === 'error') className = 'error-text';
+
+    statusContent.innerHTML = `<p class="${className}">${message}</p>`;
+}
+
+// ==================== RESPONSE DISPLAY ====================
+
+function showResponse(type, title, data) {
+    const area = document.getElementById('response-area');
+    const content = document.getElementById('response-content');
+
+    area.className = 'response-area ' + type;
+    area.style.display = 'block';
+
+    let html = `<div class="response-order">`;
+    html += `<h4>${type === 'success' ? '✅' : '❌'} ${title}</h4>`;
+
+    if (data.error) {
+        html += `<p class="error-text">${data.error}</p>`;
+    } else {
+        html += `<div class="response-row"><span>Order ID:</span><span>${data.order_id || '-'}</span></div>`;
+        html += `<div class="response-row"><span>Symbol:</span><span>${data.symbol}</span></div>`;
+        html += `<div class="response-row"><span>Action:</span><span>${data.side}</span></div>`;
+        html += `<div class="response-row"><span>Quantity:</span><span>${data.quantity}</span></div>`;
+        html += `<div class="response-row"><span>Type:</span><span>${data.price_type}</span></div>`;
+        if (data.limit_price) {
+            html += `<div class="response-row"><span>Limit Price:</span><span>${formatCurrency(data.limit_price)}</span></div>`;
+        }
+        if (data.estimated_commission) {
+            html += `<div class="response-row"><span>Commission:</span><span>${formatCurrency(data.estimated_commission)}</span></div>`;
+        }
+        if (data.estimated_total) {
+            html += `<div class="response-row"><span>Est. Total:</span><span>${formatCurrency(data.estimated_total)}</span></div>`;
+        }
+        if (data.profit_offset) {
+            html += `<div class="response-row"><span>Profit Target:</span><span>${data.profit_offset_type === 'percent' ? data.profit_offset + '%' : '$' + data.profit_offset} offset</span></div>`;
+        }
+        html += `<div class="response-row"><span>Message:</span><span>${data.message || 'Success'}</span></div>`;
+    }
+
+    html += `</div>`;
+    content.innerHTML = html;
+}
+
+function clearResponse() {
+    document.getElementById('response-area').style.display = 'none';
+}
+
+// ==================== UTILITIES ====================
 
 function formatCurrency(value) {
-    if (value === null || value === undefined) return 'N/A';
-    return '$' + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (value === null || value === undefined) return '-';
+    return '$' + parseFloat(value).toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    });
 }
 
-function formatPrice(value) {
-    if (value === null || value === undefined) return 'N/A';
-    return '$' + value.toFixed(2);
+function formatNumber(value) {
+    if (value === null || value === undefined) return '-';
+    return parseInt(value).toLocaleString('en-US');
 }
