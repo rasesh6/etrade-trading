@@ -636,9 +636,14 @@ def check_single_order_fill(account_id_key, order_id):
                 # Get fill price from OrderDetail
                 if 'OrderDetail' in order:
                     for detail in order['OrderDetail']:
+                        # Try executedPrice first, fall back to limitPrice
                         if detail.get('executedPrice'):
                             fill_price = float(detail.get('executedPrice'))
-                            logger.info(f"Fill price: {fill_price}")
+                            logger.info(f"Fill price from executedPrice: {fill_price}")
+                        elif detail.get('limitPrice'):
+                            fill_price = float(detail.get('limitPrice'))
+                            logger.info(f"Fill price from limitPrice (fallback): {fill_price}")
+                        if fill_price is not None:
                             break
                 break
 
@@ -647,6 +652,17 @@ def check_single_order_fill(account_id_key, order_id):
                 'success': True,
                 'filled': False,
                 'message': 'Order not yet filled'
+            })
+
+        # Safety check - if fill_price is still None, we can't place profit order
+        if fill_price is None:
+            logger.error(f"Order {order_id} filled but could not determine fill price")
+            return jsonify({
+                'success': True,
+                'filled': True,
+                'fill_price': None,
+                'profit_order_placed': False,
+                'error': 'Order filled but fill price not available from API'
             })
 
         # Calculate profit price from fill price + offset
