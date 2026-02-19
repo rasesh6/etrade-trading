@@ -633,18 +633,35 @@ def check_single_order_fill(account_id_key, order_id):
             if str(order.get('orderId')) == str(order_id):
                 order_filled = True
                 logger.info(f"Order {order_id} found in EXECUTED orders!")
-                # Get fill price from OrderDetail
+                # Log the FULL order structure to find the correct field for fill price
+                logger.info(f"FULL ORDER JSON: {json.dumps(order, indent=2)}")
+
+                # Get fill price from OrderDetail or Instrument
                 if 'OrderDetail' in order:
                     for detail in order['OrderDetail']:
-                        # Try executedPrice first, fall back to limitPrice
+                        logger.info(f"OrderDetail keys: {list(detail.keys())}")
+                        logger.info(f"OrderDetail FULL: {json.dumps(detail, indent=2)}")
+
+                        # Check for executedPrice at OrderDetail level
                         if detail.get('executedPrice'):
                             fill_price = float(detail.get('executedPrice'))
-                            logger.info(f"Fill price from executedPrice: {fill_price}")
-                        elif detail.get('limitPrice'):
-                            fill_price = float(detail.get('limitPrice'))
-                            logger.info(f"Fill price from limitPrice (fallback): {fill_price}")
-                        if fill_price is not None:
+                            logger.info(f"Fill price from OrderDetail.executedPrice: {fill_price}")
                             break
+
+                        # Check inside Instrument array
+                        if 'Instrument' in detail:
+                            for inst in detail['Instrument']:
+                                logger.info(f"Instrument keys: {list(inst.keys())}")
+                                if inst.get('executedPrice'):
+                                    fill_price = float(inst.get('executedPrice'))
+                                    logger.info(f"Fill price from Instrument.executedPrice: {fill_price}")
+                                    break
+                                elif inst.get('averageExecutedPrice'):
+                                    fill_price = float(inst.get('averageExecutedPrice'))
+                                    logger.info(f"Fill price from Instrument.averageExecutedPrice: {fill_price}")
+                                    break
+                            if fill_price is not None:
+                                break
                 break
 
         if not order_filled:
@@ -656,13 +673,14 @@ def check_single_order_fill(account_id_key, order_id):
 
         # Safety check - if fill_price is still None, we can't place profit order
         if fill_price is None:
-            logger.error(f"Order {order_id} filled but could not determine fill price")
+            logger.error(f"Order {order_id} EXECUTED but executedPrice NOT FOUND in API response!")
+            logger.error(f"This is a critical issue - executedPrice MUST be available for filled orders")
             return jsonify({
                 'success': True,
                 'filled': True,
                 'fill_price': None,
                 'profit_order_placed': False,
-                'error': 'Order filled but fill price not available from API'
+                'error': 'Order executed but executedPrice not found in API response - check logs for full JSON structure'
             })
 
         # Calculate profit price from fill price + offset
