@@ -1,7 +1,7 @@
 # E*TRADE Trading System - Troubleshooting Guide
 
 > **Last Updated:** 2026-02-20
-> **Current Version:** v1.5.1-api-error-handling
+> **Current Version:** v1.5.2-exponential-backoff
 > **Environment:** PRODUCTION
 > **Timezone:** All times in **CST (Central Standard Time)** unless otherwise noted
 > **Purpose:** Quick reference for debugging issues in future sessions
@@ -42,6 +42,7 @@ railway whoami
 
 ### Check Recent Logs
 Look for deployment markers in Railway logs:
+- `v1.5.2-exponential-backoff` - Exponential backoff for API errors
 - `v1.5.1-api-error-handling` - API error handling fix
 - `v1.5.0-trailing-stop` - Trailing stop feature
 - `v1.4.0-bracket-orders` - Bracket order feature (failed)
@@ -372,16 +373,41 @@ Additionally, when cancel was attempted, error 5001 ("being executed") was retur
 
 ---
 
+### Issue 19: Repeated API 500 Errors Causing Rate Limiting
+
+**Symptoms:**
+- E*TRADE API returns 500 errors repeatedly
+- System polls every second despite errors
+- May contribute to rate limiting
+
+**Root Cause:**
+System was polling at fixed 1-second intervals even when API was returning errors,
+potentially making the rate limiting worse.
+
+**Solution (v1.5.2):**
+Implemented exponential backoff:
+- Normal polling: 1 second
+- First API error: 2 second delay
+- Second consecutive error: 4 second delay
+- Third: 8 second delay
+- Max: 16 second delay
+- Resets to 1 second on successful response
+
+This reduces API load during outages and helps avoid rate limiting.
+
+---
+
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `server.py` | Flask web server, API endpoints, bracket logic |
+| `server.py` | Flask web server, API endpoints, trailing stop logic |
 | `etrade_client.py` | E*TRADE API wrapper, OAuth, order building |
-| `bracket_manager.py` | Bracket order lifecycle management |
+| `trailing_stop_manager.py` | Trailing stop lifecycle management |
+| `bracket_manager.py` | OLD - bracket order (kept for rollback) |
 | `token_manager.py` | Redis token storage |
 | `config.py` | Credentials and configuration |
-| `static/js/app.js` | Frontend logic, fill & bracket monitoring |
+| `static/js/app.js` | Frontend logic, fill & trailing stop monitoring |
 | `templates/index.html` | Trading UI |
 | `VERSION.md` | Current version and features |
 | `ETRADE_API_REFERENCE.md` | Complete API documentation |
@@ -447,7 +473,7 @@ For a new session, read these files first:
 1. `VERSION.md` - Current version, features, Railway info
 2. `README.md` - System overview
 3. `TROUBLESHOOTING.md` (this file)
-4. `bracket_manager.py` - If working on bracket orders
+4. `trailing_stop_manager.py` - If working on trailing stops
 
 ### Quick Verification Commands
 ```bash
@@ -459,6 +485,9 @@ railway status
 
 # Recent logs
 railway logs --tail 20
+
+# Check for API errors in logs
+railway logs --tail 50 | grep -i "api error\|500"
 
 # Check Redis connection in logs
 railway logs --tail 50 | grep -i redis
@@ -491,11 +520,30 @@ railway logs --tail 50 | grep -i redis
 **Goal:** Move trailing stop monitoring to server-side (survives browser close)
 **Implementation:** Background task with Redis state persistence
 
+### 3. E*TRADE API 500 Error Investigation
+**Status:** Ongoing issue
+**Problem:** E*TRADE API frequently returns 500 errors ("service not currently available")
+**Mitigation:** Exponential backoff implemented (v1.5.2)
+**Possible causes:** Rate limiting, API instability, account-specific issues
+
 ---
 
 ## Session History
 
-### 2026-02-20 Session
+### 2026-02-20 Session (Late)
+
+**Issues Fixed:**
+1. Fixed API error handling in profit target fill checks (v1.5.1)
+2. Added exponential backoff for API errors (v1.5.2)
+   - 2s, 4s, 8s, 16s max backoff
+   - Resets on successful response
+
+**Key Discovery:**
+- E*TRADE API returns 500 errors frequently during fill checks
+- Error 5001 on cancel means order filled
+- Need backoff to avoid rate limiting
+
+### 2026-02-20 Session (Early)
 
 **Issues Fixed:**
 1. Replaced bracket orders with trailing stop (bracket failed due to error 1037)
