@@ -1,7 +1,7 @@
 # E*TRADE Trading System - Troubleshooting Guide
 
-> **Last Updated:** 2026-02-19
-> **Current Version:** v1.4.0-bracket-orders
+> **Last Updated:** 2026-02-20
+> **Current Version:** v1.5.0-trailing-stop
 > **Environment:** PRODUCTION
 > **Timezone:** All times in **CST (Central Standard Time)** unless otherwise noted
 > **Purpose:** Quick reference for debugging issues in future sessions
@@ -334,6 +334,23 @@ E*TRADE has specific requirements for stop orders.
 
 ---
 
+### Issue 17: Bracket Order Error 1037 (FIXED - Use Trailing Stop)
+
+**Symptoms:**
+- Bracket order placed
+- STOP LIMIT order placed successfully
+- LIMIT order fails with error 1037: "We did not find enough available shares"
+
+**Root Cause:**
+E*TRADE doesn't allow placing two sell orders for the same shares simultaneously. When the STOP LIMIT was placed, it reserved the shares, leaving none available for the LIMIT order.
+
+**Solution:**
+Use **Trailing Stop** instead of bracket orders. Trailing stop places only ONE exit order (STOP LIMIT), avoiding the share conflict.
+
+**Reference:** v1.5.0 changed from bracket orders to trailing stops for this reason.
+
+---
+
 ## Key Files
 
 | File | Purpose |
@@ -448,14 +465,32 @@ railway logs --tail 50 | grep -i redis
 **Callback URL:** `https://web-production-9f73cd.up.railway.app/api/auth/callback`
 **API Key:** `353ce1949c42c71cec4785343aa36539`
 
-### 2. Server-Side Bracket Monitoring
+### 2. Server-Side Trailing Stop Monitoring
 **Status:** Future enhancement
-**Goal:** Move bracket monitoring to server-side (survives browser close)
+**Goal:** Move trailing stop monitoring to server-side (survives browser close)
 **Implementation:** Background task with Redis state persistence
 
 ---
 
 ## Session History
+
+### 2026-02-20 Session
+
+**Issues Fixed:**
+1. Replaced bracket orders with trailing stop (bracket failed due to error 1037)
+2. Created `trailing_stop_manager.py` - single exit order approach
+3. Updated frontend HTML/JS for trailing stop
+4. Updated API endpoints from `/api/brackets` to `/api/trailing-stops`
+
+**Key Discovery:**
+- E*TRADE doesn't allow two sell orders for the same shares
+- Solution: Use single STOP LIMIT order instead of bracket
+
+**New Files Created:**
+- `trailing_stop_manager.py` - Trailing stop lifecycle management
+
+**New API Endpoints:**
+- `/api/trailing-stops` - Trailing stop management
 
 ### 2026-02-19 Session
 
@@ -471,7 +506,7 @@ railway logs --tail 50 | grep -i redis
 - `CALLBACK_OAUTH_RESEARCH.md` - Callback OAuth research documentation
 
 **New API Endpoints:**
-- `/api/brackets` - Bracket order management
+- `/api/brackets` - Bracket order management (replaced by trailing stops in v1.5.0)
 
 ---
 

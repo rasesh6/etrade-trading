@@ -1,10 +1,10 @@
 # E*TRADE Trading System - Version History
 
-## Current Version: v1.4.0-bracket-orders
+## Current Version: v1.5.0-trailing-stop
 
-**Status: WORKING - Confirmation-Based Bracket Orders**
+**Status: WORKING - Confirmation-Based Trailing Stop**
 **Commit:** (pending)
-**Date:** 2026-02-19
+**Date:** 2026-02-20
 **Deployed At:** https://web-production-9f73cd.up.railway.app
 **Environment:** PRODUCTION (real trading)
 **Timezone:** All times in **CST (Central Standard Time)** unless otherwise noted
@@ -25,61 +25,79 @@
 | Profit Target (Offset) | ✅ WORKING | $ or % offset from fill price |
 | Auto Fill Checking | ✅ WORKING | Polls every 500ms (v1.3.2) |
 | Auto Cancel on Timeout | ✅ WORKING | Cancel if not filled within timeout |
-| STOP_LIMIT Orders | ✅ NEW | v1.4.0 - Stop price + limit price |
-| **Bracket Orders** | ✅ NEW | v1.4.0 - Confirmation-based with guaranteed profit |
-| Redis Token Storage | ✅ FIXED | v1.4.0 - Now using Redis-Y5_F service |
+| STOP_LIMIT Orders | ✅ WORKING | Stop price + limit price |
+| **Trailing Stop** | ✅ NEW | v1.5.0 - Confirmation-based with guaranteed profit |
+| Redis Token Storage | ✅ WORKING | Using Redis-Y5_F service |
 
 ---
 
-## v1.4.0 - Bracket Orders & STOP_LIMIT Support (2026-02-19)
+## v1.5.0 - Trailing Stop Feature (2026-02-20)
+
+### Background:
+v1.4.0 bracket orders failed because E*TRADE doesn't allow placing two sell orders for the same shares (error 1037). The STOP LIMIT order reserves the shares, leaving none available for the LIMIT order.
+
+### Solution:
+Simplified to a **single exit order** - trailing stop:
+1. Wait for fill
+2. Wait for price to rise by trigger offset
+3. Place STOP LIMIT order at trigger - stop offset
+4. Since stop is above fill price = **guaranteed profit**
 
 ### New Features:
 
-1. **Confirmation-Based Bracket Orders**
-   - Wait for price confirmation before placing bracket
-   - Both exit orders above fill price = **guaranteed profit**
-   - STOP LIMIT order for protected stop loss
-   - LIMIT order for profit target
-   - Automatic OCA (One Cancels All) when either fills
+1. **Confirmation-Based Trailing Stop**
+   - Wait for price to move UP by trigger amount from fill
+   - Place STOP LIMIT order below trigger (but above fill = profit)
+   - Single exit order - no share conflict
+   - Guaranteed profit when stop fills
 
-2. **STOP_LIMIT Order Support**
-   - Added `stopPrice` to order XML payload
-   - Required for bracket order stop loss functionality
-
-3. **Redis Connection Fixed**
-   - Updated REDIS_URL to point to Redis-Y5_F service
-   - Tokens now persist in Redis properly
+2. **Configuration Options**
+   - **Upper Trigger ($)**: How much price must rise before placing stop
+   - **Stop Offset ($)**: How far below trigger to place stop
+   - Fill timeout: Time to wait for order fill
+   - Confirmation timeout: Time to wait for price trigger
 
 ### New Files:
-- `bracket_manager.py` - Bracket order lifecycle management
+- `trailing_stop_manager.py` - Trailing stop lifecycle management
 
 ### New API Endpoints:
-- `GET /api/brackets` - List all active brackets
-- `GET /api/brackets/<opening_order_id>` - Get bracket status
-- `GET /api/brackets/<opening_order_id>/check-fill` - Check if opening filled
-- `GET /api/brackets/<opening_order_id>/check-confirmation` - Check price confirmation
-- `GET /api/brackets/<opening_order_id>/check-bracket` - Check bracket order fills
-- `POST /api/brackets/<opening_order_id>/cancel` - Cancel bracket
+- `GET /api/trailing-stops` - List all active trailing stops
+- `GET /api/trailing-stops/<opening_order_id>` - Get trailing stop status
+- `GET /api/trailing-stops/<opening_order_id>/check-fill` - Check if opening filled
+- `GET /api/trailing-stops/<opening_order_id>/check-confirmation` - Check price confirmation
+- `GET /api/trailing-stops/<opening_order_id>/check-stop` - Check stop order fill
+- `POST /api/trailing-stops/<opening_order_id>/cancel` - Cancel trailing stop
 
-### Bracket Order Flow:
+### Trailing Stop Flow:
 ```
-1. Place BUY order with bracket enabled
-2. Wait for fill
-3. Wait for price to move UP to trigger level
-4. Place bracket orders:
-   - STOP LIMIT SELL @ trigger - offset (above fill!)
-   - LIMIT SELL @ trigger + offset
-5. Monitor both orders
-6. When one fills, cancel the other
+1. Place BUY order with trailing stop enabled
+2. Wait for fill (get fill_price)
+3. Calculate trigger_price = fill_price + trigger_offset
+4. Monitor price, wait for current_price >= trigger_price
+5. When triggered:
+   - Calculate stop_price = trigger_price - stop_offset
+   - Place STOP LIMIT SELL @ stop_price
+6. Monitor stop order
+7. When stop fills = guaranteed profit!
+```
+
+### Example:
+```
+BUY @ $100 (fill)
+Trigger offset = $2 (wait for $102)
+Stop offset = $1 (place stop at $101)
+
+When price hits $102:
+- Place STOP LIMIT @ $101 (stop), $100.99 (limit)
+- Min guaranteed profit = $101 - $100 = $1/share
 ```
 
 ### UI Changes:
-- Added bracket order section with configuration fields
-- Confirmation trigger: $ or % offset from fill
-- Protected stop loss: $ or % below trigger
-- Profit target: $ or % above trigger
+- Replaced bracket order section with trailing stop section
+- Upper Trigger: $ or % offset from fill
+- Stop Offset: $ or % below trigger
 - Fill timeout and confirmation timeout settings
-- Real-time bracket status monitoring
+- Real-time trailing stop status monitoring
 
 ---
 
@@ -87,7 +105,8 @@
 
 | Version | Date | Status | Key Changes |
 |---------|------|--------|-------------|
-| v1.4.0 | 2026-02-19 | ✅ CURRENT | Bracket orders, STOP_LIMIT, Redis fix |
+| v1.5.0 | 2026-02-20 | ✅ CURRENT | Trailing stop (single exit order, guaranteed profit) |
+| v1.4.0 | 2026-02-19 | ❌ FAILED | Bracket orders failed (error 1037 - two sell orders not allowed) |
 | v1.3.3 | 2026-02-19 | Working | Fixed UI polling order (check fill BEFORE timeout) |
 | v1.3.2 | 2026-02-18 | Working | Faster fill polling (500ms) |
 | v1.3.1 | 2026-02-18 | Working | Fixed order_id type mismatch |
@@ -128,18 +147,19 @@ E*TRADE requires the `<PreviewIds>` wrapper around `<previewId>`:
 E*TRADE API returns order IDs as **integers**. URL parameters are **strings**.
 Always convert to same type before comparison.
 
-### Bracket Order Data Structure
+### Trailing Stop Data Structure
 
 ```python
-PendingBracket:
+PendingTrailingStop:
     opening_order_id: int
     symbol: str
     quantity: int
     fill_price: float
-    trigger_price: float  # Price at which bracket is placed
+    trigger_price: float  # Price at which stop is placed
     stop_order_id: int    # STOP LIMIT order ID
-    profit_order_id: int  # LIMIT order ID
-    state: BracketState   # pending_fill, waiting_confirmation, bracket_placed, etc.
+    stop_price: float     # Stop trigger price
+    stop_limit_price: float  # Stop limit price
+    state: TrailingStopState  # pending_fill, waiting_confirmation, stop_placed, etc.
 ```
 
 ---
@@ -149,7 +169,7 @@ PendingBracket:
 | Service | Purpose | Status |
 |---------|---------|--------|
 | web | Flask application | Running |
-| Redis-Y5_F | Token & bracket storage | Running |
+| Redis-Y5_F | Token & trailing stop storage | Running |
 
 ### Railway CLI Commands
 
@@ -178,8 +198,9 @@ railway variables
 
 1. **Extended Hours Trading**: Market orders not supported - must use LIMIT orders
 2. **Callback OAuth**: NOT registered - using manual verification code flow
-3. **Bracket Monitoring**: Frontend-based, stops if browser is closed
+3. **Trailing Stop Monitoring**: Frontend-based, stops if browser is closed
 4. **Confirmation Timeout**: If price doesn't reach trigger, position remains open
+5. **No OCO Orders**: E*TRADE API doesn't support One-Cancels-Other orders
 
 ---
 
@@ -201,12 +222,12 @@ See `CALLBACK_OAUTH_RESEARCH.md` for details.
 ```bash
 cd ~/Projects/etrade
 
-# Rollback to v1.3.3 (before bracket orders)
-git checkout 3eaa205
+# Rollback to v1.4.0-bracket-orders (bracket order feature)
+git checkout v1.4.0-bracket-orders
 git push origin main --force
 
-# Rollback to v1.3.0 (offset-based profit)
-git checkout 4b4a088
+# Rollback to v1.3.3 (before bracket orders)
+git checkout 3eaa205
 git push origin main --force
 ```
 
@@ -225,24 +246,25 @@ git push origin main --force
 
 ```
 etrade/
-├── server.py              # Flask web server, API endpoints
-├── etrade_client.py       # E*TRADE API wrapper, OAuth, orders
-├── bracket_manager.py     # Bracket order lifecycle management (NEW)
-├── token_manager.py       # OAuth token storage (Redis)
-├── config.py              # Credentials and configuration
+├── server.py                 # Flask web server, API endpoints
+├── etrade_client.py          # E*TRADE API wrapper, OAuth, orders
+├── trailing_stop_manager.py  # Trailing stop lifecycle management (NEW)
+├── bracket_manager.py        # OLD - bracket order (kept for rollback)
+├── token_manager.py          # OAuth token storage (Redis)
+├── config.py                 # Credentials and configuration
 ├── static/
-│   ├── css/style.css      # Styles (includes bracket styles)
-│   └── js/app.js          # Application logic (includes bracket monitoring)
+│   ├── css/style.css         # Styles
+│   └── js/app.js             # Application logic
 ├── templates/
-│   └── index.html         # Trading UI (includes bracket form)
-├── requirements.txt       # Python dependencies
-├── VERSION.md             # This file
-├── README.md              # System overview
-├── TROUBLESHOOTING.md     # Debug guide
-├── ETRADE_API_REFERENCE.md # API documentation
+│   └── index.html            # Trading UI
+├── requirements.txt          # Python dependencies
+├── VERSION.md                # This file
+├── README.md                 # System overview
+├── TROUBLESHOOTING.md        # Debug guide
+├── ETRADE_API_REFERENCE.md   # API documentation
 ├── CALLBACK_OAUTH_RESEARCH.md # OAuth callback research
-├── CALLBACK_URL_STATUS.md # Callback registration status
-└── test_callback_oauth.py # Test script for callback OAuth
+├── CALLBACK_URL_STATUS.md    # Callback registration status
+└── test_callback_oauth.py    # Test script for callback OAuth
 ```
 
 ---

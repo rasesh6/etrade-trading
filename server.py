@@ -11,7 +11,7 @@ from flask import Flask, render_template, request, jsonify, session, redirect, u
 from config import SECRET_KEY, USE_SANDBOX
 from etrade_client import ETradeClient
 from token_manager import get_token_manager
-from bracket_manager import get_bracket_manager, PendingBracket, BracketState
+from trailing_stop_manager import get_trailing_stop_manager, PendingTrailingStop, TrailingStopState
 
 # Configure logging
 logging.basicConfig(
@@ -554,51 +554,45 @@ def place_order():
             }
             logger.info(f"Stored pending profit order for order_id={order_id}, offset={profit_offset} ({profit_offset_type})")
 
-        # If bracket order is enabled, create pending bracket
-        bracket_enabled = data.get('bracket_enabled', False)
-        bracket_response = None
+        # If trailing stop is enabled, create pending trailing stop
+        trailing_stop_enabled = data.get('trailing_stop_enabled', False)
+        trailing_stop_response = None
 
-        if bracket_enabled and order_id:
-            bracket_manager = get_bracket_manager()
+        if trailing_stop_enabled and order_id:
+            trailing_stop_manager = get_trailing_stop_manager()
 
-            bracket = PendingBracket(
+            trailing_stop = PendingTrailingStop(
                 opening_order_id=order_id,
                 symbol=symbol,
                 quantity=quantity,
                 account_id_key=account_id_key,
                 opening_side=side,
 
-                # Confirmation config
-                confirmation_type=data.get('bracket_confirmation_type', 'dollar'),
-                confirmation_offset=float(data.get('bracket_confirmation_offset', 0)),
+                # Trigger config (confirmation)
+                trigger_type=data.get('trailing_stop_trigger_type', 'dollar'),
+                trigger_offset=float(data.get('trailing_stop_trigger_offset', 0)),
 
-                # Stop loss config
-                stop_loss_type=data.get('bracket_stop_type', 'dollar'),
-                stop_loss_offset=float(data.get('bracket_stop_offset', 0)),
-
-                # Profit config
-                profit_type=data.get('bracket_profit_type', 'dollar'),
-                profit_offset=float(data.get('bracket_profit_offset', 0)),
+                # Stop config
+                stop_type=data.get('trailing_stop_stop_type', 'dollar'),
+                stop_offset=float(data.get('trailing_stop_stop_offset', 0)),
 
                 # Timeouts
                 fill_timeout=int(data.get('fill_timeout', 15)),
-                confirmation_timeout=int(data.get('bracket_confirmation_timeout', 300))
+                confirmation_timeout=int(data.get('trailing_stop_confirmation_timeout', 300))
             )
 
-            bracket_manager.add_bracket(bracket)
-            bracket_response = {
+            trailing_stop_manager.add_trailing_stop(trailing_stop)
+            trailing_stop_response = {
                 'enabled': True,
-                'confirmation_type': bracket.confirmation_type,
-                'confirmation_offset': bracket.confirmation_offset,
-                'stop_loss_type': bracket.stop_loss_type,
-                'stop_loss_offset': bracket.stop_loss_offset,
-                'profit_type': bracket.profit_type,
-                'profit_offset': bracket.profit_offset,
-                'fill_timeout': bracket.fill_timeout,
-                'confirmation_timeout': bracket.confirmation_timeout
+                'trigger_type': trailing_stop.trigger_type,
+                'trigger_offset': trailing_stop.trigger_offset,
+                'stop_type': trailing_stop.stop_type,
+                'stop_offset': trailing_stop.stop_offset,
+                'fill_timeout': trailing_stop.fill_timeout,
+                'confirmation_timeout': trailing_stop.confirmation_timeout
             }
-            logger.info(f"Created bracket for order {order_id}: confirm {bracket.confirmation_offset}({bracket.confirmation_type}), "
-                       f"stop {bracket.stop_loss_offset}({bracket.stop_loss_type}), profit {bracket.profit_offset}({bracket.profit_type})")
+            logger.info(f"Created trailing stop for order {order_id}: trigger {trailing_stop.trigger_offset}({trailing_stop.trigger_type}), "
+                       f"stop {trailing_stop.stop_offset}({trailing_stop.stop_type})")
 
         return jsonify({
             'success': True,
@@ -613,7 +607,7 @@ def place_order():
                 'message': result.get('message', 'Order placed successfully'),
                 'profit_offset_type': profit_offset_type,
                 'profit_offset': profit_offset,
-                'bracket': bracket_response
+                'trailing_stop': trailing_stop_response
             }
         })
 
@@ -1032,71 +1026,71 @@ def check_fills_and_place_profits():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-# ==================== BRACKET ORDER API ====================
+# ==================== TRAILING STOP API ====================
 
-@app.route('/api/brackets', methods=['GET'])
-def get_brackets():
-    """Get all pending bracket orders"""
-    bracket_manager = get_bracket_manager()
-    brackets = bracket_manager.get_all_brackets()
+@app.route('/api/trailing-stops', methods=['GET'])
+def get_trailing_stops():
+    """Get all pending trailing stop orders"""
+    trailing_stop_manager = get_trailing_stop_manager()
+    trailing_stops = trailing_stop_manager.get_all_trailing_stops()
 
     result = []
-    for order_id, bracket in brackets.items():
-        result.append(bracket.to_dict())
+    for order_id, ts in trailing_stops.items():
+        result.append(ts.to_dict())
 
     return jsonify({
         'success': True,
-        'brackets': result,
+        'trailing_stops': result,
         'count': len(result)
     })
 
 
-@app.route('/api/brackets/<int:opening_order_id>', methods=['GET'])
-def get_bracket_status(opening_order_id):
-    """Get status of a specific bracket order"""
-    bracket_manager = get_bracket_manager()
-    bracket = bracket_manager.get_bracket(opening_order_id)
+@app.route('/api/trailing-stops/<int:opening_order_id>', methods=['GET'])
+def get_trailing_stop_status(opening_order_id):
+    """Get status of a specific trailing stop order"""
+    trailing_stop_manager = get_trailing_stop_manager()
+    ts = trailing_stop_manager.get_trailing_stop(opening_order_id)
 
-    if not bracket:
+    if not ts:
         return jsonify({
             'success': False,
-            'error': f'No bracket found for order {opening_order_id}'
+            'error': f'No trailing stop found for order {opening_order_id}'
         }), 404
 
     return jsonify({
         'success': True,
-        'bracket': bracket.to_dict()
+        'trailing_stop': ts.to_dict()
     })
 
 
-@app.route('/api/brackets/<int:opening_order_id>/check-fill', methods=['GET'])
-def check_bracket_fill(opening_order_id):
+@app.route('/api/trailing-stops/<int:opening_order_id>/check-fill', methods=['GET'])
+def check_trailing_stop_fill(opening_order_id):
     """
-    Check if opening order is filled and update bracket state.
+    Check if opening order is filled and update trailing stop state.
     Called by frontend polling during PENDING_FILL state.
     """
     try:
-        bracket_manager = get_bracket_manager()
-        bracket = bracket_manager.get_bracket(opening_order_id)
+        trailing_stop_manager = get_trailing_stop_manager()
+        ts = trailing_stop_manager.get_trailing_stop(opening_order_id)
 
-        if not bracket:
+        if not ts:
             return jsonify({
                 'success': False,
-                'error': f'No bracket found for order {opening_order_id}'
+                'error': f'No trailing stop found for order {opening_order_id}'
             }), 404
 
-        if bracket.state != BracketState.PENDING_FILL:
+        if ts.state != TrailingStopState.PENDING_FILL:
             return jsonify({
                 'success': True,
-                'filled': bracket.state != BracketState.PENDING_FILL,
-                'state': bracket.state,
-                'bracket': bracket.to_dict()
+                'filled': ts.state != TrailingStopState.PENDING_FILL,
+                'state': ts.state,
+                'trailing_stop': ts.to_dict()
             })
 
         client = _get_authenticated_client()
 
         # Check if order is filled
-        orders = client.get_orders(bracket.account_id_key, status='EXECUTED')
+        orders = client.get_orders(ts.account_id_key, status='EXECUTED')
 
         fill_price = None
         for order in orders:
@@ -1114,71 +1108,71 @@ def check_bracket_fill(opening_order_id):
                 break
 
         if fill_price:
-            bracket_manager.mark_filled(opening_order_id, fill_price)
-            logger.info(f"Bracket opening order {opening_order_id} filled at {fill_price}")
+            trailing_stop_manager.mark_filled(opening_order_id, fill_price)
+            logger.info(f"Trailing stop opening order {opening_order_id} filled at {fill_price}")
 
             return jsonify({
                 'success': True,
                 'filled': True,
                 'fill_price': fill_price,
-                'trigger_price': bracket.trigger_price,
-                'state': bracket.state,
-                'bracket': bracket.to_dict()
+                'trigger_price': ts.trigger_price,
+                'state': ts.state,
+                'trailing_stop': ts.to_dict()
             })
 
         return jsonify({
             'success': True,
             'filled': False,
-            'state': bracket.state,
-            'bracket': bracket.to_dict()
+            'state': ts.state,
+            'trailing_stop': ts.to_dict()
         })
 
     except Exception as e:
-        logger.error(f"Check bracket fill failed: {e}")
+        logger.error(f"Check trailing stop fill failed: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@app.route('/api/brackets/<int:opening_order_id>/check-confirmation', methods=['GET'])
-def check_bracket_confirmation(opening_order_id):
+@app.route('/api/trailing-stops/<int:opening_order_id>/check-confirmation', methods=['GET'])
+def check_trailing_stop_confirmation(opening_order_id):
     """
-    Check if price has reached confirmation trigger and place bracket if so.
+    Check if price has reached confirmation trigger and place stop if so.
     Called by frontend polling during WAITING_CONFIRMATION state.
     """
     try:
-        bracket_manager = get_bracket_manager()
-        bracket = bracket_manager.get_bracket(opening_order_id)
+        trailing_stop_manager = get_trailing_stop_manager()
+        ts = trailing_stop_manager.get_trailing_stop(opening_order_id)
 
-        if not bracket:
+        if not ts:
             return jsonify({
                 'success': False,
-                'error': f'No bracket found for order {opening_order_id}'
+                'error': f'No trailing stop found for order {opening_order_id}'
             }), 404
 
-        if bracket.state != BracketState.WAITING_CONFIRMATION:
+        if ts.state != TrailingStopState.WAITING_CONFIRMATION:
             return jsonify({
                 'success': True,
                 'confirmed': False,
-                'state': bracket.state,
-                'message': f'Bracket in state {bracket.state}',
-                'bracket': bracket.to_dict()
+                'state': ts.state,
+                'message': f'Trailing stop in state {ts.state}',
+                'trailing_stop': ts.to_dict()
             })
 
         # Check for confirmation timeout
-        if bracket.is_confirmation_timeout():
-            bracket_manager.mark_error(opening_order_id, 'Confirmation timeout - price did not reach trigger')
+        if ts.is_confirmation_timeout():
+            trailing_stop_manager.mark_error(opening_order_id, 'Confirmation timeout - price did not reach trigger')
             return jsonify({
                 'success': True,
                 'confirmed': False,
                 'timeout': True,
-                'state': bracket.state,
-                'message': 'Confirmation timeout - price did not reach trigger',
-                'bracket': bracket.to_dict()
+                'state': ts.state,
+                'message': 'Confirmation timeout - price did not reach trigger. Position remains open.',
+                'trailing_stop': ts.to_dict()
             })
 
         client = _get_authenticated_client()
 
         # Get current price
-        quote = client.get_quote(bracket.symbol)
+        quote = client.get_quote(ts.symbol)
         current_price = None
         if quote and 'All' in quote:
             current_price = quote['All'].get('lastTrade')
@@ -1187,241 +1181,181 @@ def check_bracket_confirmation(opening_order_id):
             return jsonify({
                 'success': True,
                 'confirmed': False,
-                'state': bracket.state,
+                'state': ts.state,
                 'message': 'Could not get current price',
-                'bracket': bracket.to_dict()
+                'trailing_stop': ts.to_dict()
             })
 
         # Check if confirmation reached
-        if bracket.check_confirmation(current_price):
+        if ts.check_confirmation(current_price):
             logger.info(f"Confirmation reached for order {opening_order_id} at price {current_price}")
 
-            # Calculate bracket prices
-            stop_price, stop_limit_price, profit_limit_price = bracket.calculate_bracket_prices(current_price)
+            # Calculate stop prices
+            stop_price, stop_limit_price = ts.calculate_stop_prices(current_price)
 
-            # Place bracket orders
+            # Place STOP LIMIT order
             try:
-                # Place STOP LIMIT order
                 stop_order_data = {
-                    'symbol': bracket.symbol,
-                    'quantity': bracket.quantity,
-                    'orderAction': bracket.get_closing_side(),
+                    'symbol': ts.symbol,
+                    'quantity': ts.quantity,
+                    'orderAction': ts.get_closing_side(),
                     'priceType': 'STOP_LIMIT',
                     'orderTerm': 'GOOD_FOR_DAY',
                     'stopPrice': str(stop_price),
                     'limitPrice': str(stop_limit_price)
                 }
 
-                stop_preview = client.preview_order(bracket.account_id_key, stop_order_data)
+                stop_preview = client.preview_order(ts.account_id_key, stop_order_data)
                 stop_result = client.place_order(
-                    bracket.account_id_key,
+                    ts.account_id_key,
                     stop_order_data,
                     preview_id=stop_preview.get('preview_id'),
                     client_order_id=stop_preview.get('client_order_id')
                 )
                 stop_order_id = stop_result.get('order_id')
 
-                logger.info(f"Placed STOP LIMIT order {stop_order_id} for {bracket.symbol} @ stop {stop_price}, limit {stop_limit_price}")
+                logger.info(f"Placed STOP LIMIT order {stop_order_id} for {ts.symbol} @ stop {stop_price}, limit {stop_limit_price}")
 
-                # Place LIMIT order for profit target
-                profit_order_data = {
-                    'symbol': bracket.symbol,
-                    'quantity': bracket.quantity,
-                    'orderAction': bracket.get_closing_side(),
-                    'priceType': 'LIMIT',
-                    'orderTerm': 'GOOD_FOR_DAY',
-                    'limitPrice': str(profit_limit_price)
-                }
-
-                profit_preview = client.preview_order(bracket.account_id_key, profit_order_data)
-                profit_result = client.place_order(
-                    bracket.account_id_key,
-                    profit_order_data,
-                    preview_id=profit_preview.get('preview_id'),
-                    client_order_id=profit_preview.get('client_order_id')
-                )
-                profit_order_id = profit_result.get('order_id')
-
-                logger.info(f"Placed LIMIT order {profit_order_id} for {bracket.symbol} @ {profit_limit_price}")
-
-                # Update bracket state
-                bracket_manager.mark_bracket_placed(opening_order_id, stop_order_id, profit_order_id)
+                # Update trailing stop state
+                trailing_stop_manager.mark_stop_placed(opening_order_id, stop_order_id)
 
                 return jsonify({
                     'success': True,
                     'confirmed': True,
-                    'bracket_placed': True,
+                    'stop_placed': True,
                     'current_price': current_price,
                     'stop_order_id': stop_order_id,
-                    'profit_order_id': profit_order_id,
                     'stop_price': stop_price,
                     'stop_limit_price': stop_limit_price,
-                    'profit_limit_price': profit_limit_price,
-                    'state': bracket.state,
-                    'bracket': bracket.to_dict()
+                    'min_profit': ts.get_min_profit(),
+                    'state': ts.state,
+                    'trailing_stop': ts.to_dict()
                 })
 
             except Exception as e:
-                logger.error(f"Failed to place bracket orders: {e}")
-                bracket_manager.mark_error(opening_order_id, str(e))
+                logger.error(f"Failed to place stop order: {e}")
+                trailing_stop_manager.mark_error(opening_order_id, str(e))
                 return jsonify({
                     'success': False,
                     'confirmed': True,
-                    'bracket_placed': False,
+                    'stop_placed': False,
                     'error': str(e),
-                    'bracket': bracket.to_dict()
+                    'trailing_stop': ts.to_dict()
                 }), 500
 
         return jsonify({
             'success': True,
             'confirmed': False,
             'current_price': current_price,
-            'trigger_price': bracket.trigger_price,
-            'fill_price': bracket.fill_price,
-            'state': bracket.state,
-            'bracket': bracket.to_dict()
+            'trigger_price': ts.trigger_price,
+            'fill_price': ts.fill_price,
+            'state': ts.state,
+            'trailing_stop': ts.to_dict()
         })
 
     except Exception as e:
-        logger.error(f"Check bracket confirmation failed: {e}")
+        logger.error(f"Check trailing stop confirmation failed: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@app.route('/api/brackets/<int:opening_order_id>/check-bracket', methods=['GET'])
-def check_bracket_orders(opening_order_id):
+@app.route('/api/trailing-stops/<int:opening_order_id>/check-stop', methods=['GET'])
+def check_trailing_stop_order(opening_order_id):
     """
-    Check if either bracket order has filled and cancel the other.
-    Called by frontend polling during BRACKET_PLACED state.
+    Check if stop order has filled.
+    Called by frontend polling during STOP_PLACED state.
     """
     try:
-        bracket_manager = get_bracket_manager()
-        bracket = bracket_manager.get_bracket(opening_order_id)
+        trailing_stop_manager = get_trailing_stop_manager()
+        ts = trailing_stop_manager.get_trailing_stop(opening_order_id)
 
-        if not bracket:
+        if not ts:
             return jsonify({
                 'success': False,
-                'error': f'No bracket found for order {opening_order_id}'
+                'error': f'No trailing stop found for order {opening_order_id}'
             }), 404
 
-        if bracket.state != BracketState.BRACKET_PLACED:
+        if ts.state != TrailingStopState.STOP_PLACED:
             return jsonify({
                 'success': True,
-                'state': bracket.state,
-                'message': f'Bracket in state {bracket.state}',
-                'bracket': bracket.to_dict()
+                'state': ts.state,
+                'message': f'Trailing stop in state {ts.state}',
+                'trailing_stop': ts.to_dict()
             })
 
         client = _get_authenticated_client()
 
         # Check if stop order filled
-        orders = client.get_orders(bracket.account_id_key, status='EXECUTED')
+        orders = client.get_orders(ts.account_id_key, status='EXECUTED')
         stop_filled = False
-        profit_filled = False
 
         for order in orders:
             order_id = order.get('orderId')
-            if str(order_id) == str(bracket.stop_order_id):
+            if str(order_id) == str(ts.stop_order_id):
                 stop_filled = True
-                break
-            if str(order_id) == str(bracket.profit_order_id):
-                profit_filled = True
                 break
 
         if stop_filled:
-            # Cancel profit order
-            try:
-                client.cancel_order(bracket.account_id_key, bracket.profit_order_id)
-                logger.info(f"Cancelled profit order {bracket.profit_order_id} (stop filled)")
-            except Exception as e:
-                logger.warning(f"Could not cancel profit order: {e}")
-
-            bracket_manager.mark_stop_filled(opening_order_id)
+            trailing_stop_manager.mark_stop_filled(opening_order_id)
             return jsonify({
                 'success': True,
                 'stop_filled': True,
-                'profit_filled': False,
-                'state': bracket.state,
-                'message': 'Stop loss filled - bracket complete',
-                'bracket': bracket.to_dict()
-            })
-
-        if profit_filled:
-            # Cancel stop order
-            try:
-                client.cancel_order(bracket.account_id_key, bracket.stop_order_id)
-                logger.info(f"Cancelled stop order {bracket.stop_order_id} (profit filled)")
-            except Exception as e:
-                logger.warning(f"Could not cancel stop order: {e}")
-
-            bracket_manager.mark_profit_filled(opening_order_id)
-            return jsonify({
-                'success': True,
-                'stop_filled': False,
-                'profit_filled': True,
-                'state': bracket.state,
-                'message': 'Profit target filled - bracket complete',
-                'bracket': bracket.to_dict()
+                'state': ts.state,
+                'min_profit': ts.get_min_profit(),
+                'message': f'Stop order filled - guaranteed profit of ${ts.get_min_profit():.2f}/share',
+                'trailing_stop': ts.to_dict()
             })
 
         return jsonify({
             'success': True,
             'stop_filled': False,
-            'profit_filled': False,
-            'state': bracket.state,
-            'bracket': bracket.to_dict()
+            'state': ts.state,
+            'trailing_stop': ts.to_dict()
         })
 
     except Exception as e:
-        logger.error(f"Check bracket orders failed: {e}")
+        logger.error(f"Check trailing stop order failed: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@app.route('/api/brackets/<int:opening_order_id>/cancel', methods=['POST'])
-def cancel_bracket(opening_order_id):
-    """Cancel a bracket order and optionally the opening position"""
+@app.route('/api/trailing-stops/<int:opening_order_id>/cancel', methods=['POST'])
+def cancel_trailing_stop(opening_order_id):
+    """Cancel a trailing stop order"""
     try:
-        bracket_manager = get_bracket_manager()
-        bracket = bracket_manager.get_bracket(opening_order_id)
+        trailing_stop_manager = get_trailing_stop_manager()
+        ts = trailing_stop_manager.get_trailing_stop(opening_order_id)
 
-        if not bracket:
+        if not ts:
             return jsonify({
                 'success': False,
-                'error': f'No bracket found for order {opening_order_id}'
+                'error': f'No trailing stop found for order {opening_order_id}'
             }), 404
 
         client = _get_authenticated_client()
         cancelled_orders = []
 
-        # Cancel bracket orders if placed
-        if bracket.stop_order_id:
+        # Cancel stop order if placed
+        if ts.stop_order_id:
             try:
-                client.cancel_order(bracket.account_id_key, bracket.stop_order_id)
-                cancelled_orders.append(f'stop:{bracket.stop_order_id}')
+                client.cancel_order(ts.account_id_key, ts.stop_order_id)
+                cancelled_orders.append(f'stop:{ts.stop_order_id}')
             except Exception as e:
                 logger.warning(f"Could not cancel stop order: {e}")
 
-        if bracket.profit_order_id:
-            try:
-                client.cancel_order(bracket.account_id_key, bracket.profit_order_id)
-                cancelled_orders.append(f'profit:{bracket.profit_order_id}')
-            except Exception as e:
-                logger.warning(f"Could not cancel profit order: {e}")
-
         # Update state
-        bracket.state = BracketState.CANCELLED
-        bracket.completed_at = datetime.utcnow()
+        ts.state = TrailingStopState.CANCELLED
+        ts.completed_at = datetime.utcnow()
 
         # Remove from manager
-        bracket_manager.remove_bracket(opening_order_id)
+        trailing_stop_manager.remove_trailing_stop(opening_order_id)
 
         return jsonify({
             'success': True,
             'cancelled_orders': cancelled_orders,
-            'message': 'Bracket cancelled'
+            'message': 'Trailing stop cancelled'
         })
 
     except Exception as e:
-        logger.error(f"Cancel bracket failed: {e}")
+        logger.error(f"Cancel trailing stop failed: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
