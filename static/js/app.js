@@ -678,6 +678,13 @@ function startOrderMonitoring(orderId, symbol, quantity, side, offsetType, offse
             const response = await fetch(`/api/orders/${currentAccountIdKey}/check-fill/${orderId}`);
             const data = await response.json();
 
+            // If API error, don't count towards timeout
+            if (data.api_error) {
+                elapsed -= pollInterval / 1000;
+                updateOrderStatus(`⏳ API temporarily unavailable, retrying... (${Math.floor(elapsed)}/${timeout}s)`);
+                return;
+            }
+
             if (data.success && data.filled) {
                 clearInterval(fillCheckInterval);
 
@@ -702,9 +709,19 @@ function startOrderMonitoring(orderId, symbol, quantity, side, offsetType, offse
 
             // Cancel the order
             try {
-                await fetch(`/api/orders/${currentAccountIdKey}/${orderId}/cancel`, {
+                const cancelResponse = await fetch(`/api/orders/${currentAccountIdKey}/${orderId}/cancel`, {
                     method: 'POST'
                 });
+                const cancelData = await cancelResponse.json();
+
+                // Error 5001 means order is being executed (likely filled!)
+                if (!cancelData.success && (cancelData.error?.includes('5001') || cancelData.error?.includes('being executed'))) {
+                    updateOrderStatus(`⚠️ Order may have filled during cancel. Please check positions.`, 'error');
+                    loadOrders(currentAccountIdKey);
+                    loadPositions(currentAccountIdKey);
+                    return;
+                }
+
                 updateOrderStatus(`Order cancelled (not filled within ${timeout}s)`, 'error');
                 loadOrders(currentAccountIdKey);
             } catch (e) {

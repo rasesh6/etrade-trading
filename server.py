@@ -765,8 +765,21 @@ def check_single_order_fill(account_id_key, order_id):
             })
 
         # Get order details to check status and fill price
-        orders = client.get_orders(account_id_key, status='EXECUTED')
-        logger.info(f"Found {len(orders)} EXECUTED orders")
+        try:
+            orders = client.get_orders(account_id_key, status='EXECUTED')
+            logger.info(f"Found {len(orders)} EXECUTED orders")
+        except Exception as api_error:
+            # E*TRADE API might return 500 errors temporarily
+            error_msg = str(api_error)
+            if '500' in error_msg or 'not currently available' in error_msg:
+                logger.warning(f"E*TRADE API temporarily unavailable for fill check: {error_msg}")
+                return jsonify({
+                    'success': True,
+                    'filled': False,
+                    'api_error': True,
+                    'api_error_message': 'E*TRADE API temporarily unavailable, retrying...'
+                })
+            raise
 
         order_filled = False
         fill_price = None
