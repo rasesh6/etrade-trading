@@ -685,8 +685,20 @@ def cancel_order(account_id_key, order_id):
         })
 
     except Exception as e:
+        error_msg = str(e)
         logger.error(f"Cancel order failed: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+
+        # Error 5001 means order is being executed (likely filled!)
+        if '5001' in error_msg or 'being executed' in error_msg:
+            return jsonify({
+                'success': False,
+                'error': error_msg,
+                'error_code': 5001,
+                'order_likely_filled': True,
+                'message': 'Order is being executed - it likely filled!'
+            }), 400
+
+        return jsonify({'success': False, 'error': error_msg}), 500
 
 
 # ==================== PENDING PROFIT ORDERS API ====================
@@ -1090,7 +1102,24 @@ def check_trailing_stop_fill(opening_order_id):
         client = _get_authenticated_client()
 
         # Check if order is filled
-        orders = client.get_orders(ts.account_id_key, status='EXECUTED')
+        try:
+            orders = client.get_orders(ts.account_id_key, status='EXECUTED')
+        except Exception as api_error:
+            # E*TRADE API might return 500 errors temporarily
+            # Don't count this as "not filled" - return api_error flag
+            error_msg = str(api_error)
+            if '500' in error_msg or 'not currently available' in error_msg:
+                logger.warning(f"E*TRADE API temporarily unavailable for fill check: {error_msg}")
+                return jsonify({
+                    'success': True,
+                    'filled': False,
+                    'api_error': True,
+                    'api_error_message': 'E*TRADE API temporarily unavailable, retrying...',
+                    'state': ts.state,
+                    'trailing_stop': ts.to_dict()
+                })
+            # For other errors, still raise them
+            raise
 
         fill_price = None
         for order in orders:

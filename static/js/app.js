@@ -658,7 +658,7 @@ function startOrderMonitoring(orderId, symbol, quantity, side, offsetType, offse
     statusCard.style.display = 'block';
 
     let elapsed = 0;
-    const pollInterval = 500; // Check every 500ms for faster fill detection
+    const pollInterval = 1000; // Check every 1 second
 
     // Clear any existing interval
     if (fillCheckInterval) {
@@ -838,15 +838,36 @@ function startTrailingStopMonitoring(orderId, symbol, quantity, side, trailingSt
                         `Waiting for price to reach ${formatCurrency(fillData.trigger_price)}...`
                     );
                 }
+                // If API error (E*TRADE temporarily unavailable), don't count towards timeout
+                else if (fillData.api_error) {
+                    elapsedSeconds -= pollInterval / 1000; // Undo the increment
+                    updateTrailingStopStatus('waiting_fill',
+                        `⏳ API temporarily unavailable, retrying... (${Math.floor(elapsedSeconds)}/${fillTimeout}s)`
+                    );
+                }
                 // CHECK FOR FILL TIMEOUT - after fill check
                 else if (elapsedSeconds >= fillTimeout) {
                     clearInterval(fillCheckInterval);
 
                     // Cancel the order
                     try {
-                        await fetch(`/api/orders/${currentAccountIdKey}/${orderId}/cancel`, {
+                        const cancelResponse = await fetch(`/api/orders/${currentAccountIdKey}/${orderId}/cancel`, {
                             method: 'POST'
                         });
+                        const cancelData = await cancelResponse.json();
+
+                        // Error 5001 means order is being executed (likely filled!)
+                        // Re-check fill status one more time
+                        if (!cancelData.success && (cancelData.error?.includes('5001') || cancelData.error?.includes('being executed'))) {
+                            updateTrailingStopStatus('waiting_fill',
+                                `⚠️ Order may have filled during cancel. Re-checking...`
+                            );
+                            // Re-poll for fill status
+                            trailingStopState = 'verifying_fill';
+                            fillCheckInterval = setInterval(arguments.callee, pollInterval);
+                            return;
+                        }
+
                         updateTrailingStopStatus('timeout',
                             `Order cancelled (not filled within ${fillTimeout}s)`
                         );
@@ -855,6 +876,26 @@ function startTrailingStopMonitoring(orderId, symbol, quantity, side, trailingSt
                         updateTrailingStopStatus('error', `Failed to cancel order: ${e.message}`);
                     }
                     return;
+                }
+            }
+            else if (trailingStopState === 'verifying_fill') {
+                // After error 5001, verify if order actually filled
+                const verifyResponse = await fetch(`/api/trailing-stops/${orderId}/check-fill`);
+                const verifyData = await verifyResponse.json();
+
+                if (verifyData.filled) {
+                    elapsedSeconds = 0;
+                    trailingStopState = 'waiting_confirmation';
+                    updateTrailingStopStatus('waiting_confirmation',
+                        `✅ Filled @ ${formatCurrency(verifyData.fill_price)}. ` +
+                        `Waiting for price to reach ${formatCurrency(verifyData.trigger_price)}...`
+                    );
+                } else {
+                    clearInterval(fillCheckInterval);
+                    updateTrailingStopStatus('timeout',
+                        `⚠️ Order status unclear. Please check positions manually.`
+                    );
+                    loadOrders(currentAccountIdKey);
                 }
             }
             else if (trailingStopState === 'waiting_confirmation') {
@@ -937,6 +978,7 @@ function updateTrailingStopStatus(state, message) {
 
     const stateLabels = {
         'waiting_fill': '⏳ Waiting for Fill',
+        'verifying_fill': '🔍 Verifying Fill',
         'waiting_confirmation': '📈 Waiting for Confirmation',
         'stop_active': '🛑 Trailing Stop Active',
         'complete': '✅ Complete',
@@ -945,6 +987,7 @@ function updateTrailingStopStatus(state, message) {
 
     const stateColors = {
         'waiting_fill': '#ffc107',
+        'verifying_fill': '#17a2b8',
         'waiting_confirmation': '#17a2b8',
         'stop_active': '#28a745',
         'complete': '#28a745',

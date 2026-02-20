@@ -1,8 +1,8 @@
 # E*TRADE Trading System - Version History
 
-## Current Version: v1.5.0-trailing-stop
+## Current Version: v1.5.1-api-error-handling
 
-**Status: WORKING - Confirmation-Based Trailing Stop**
+**Status: WORKING - Improved API Error Handling**
 **Commit:** (pending)
 **Date:** 2026-02-20
 **Deployed At:** https://web-production-9f73cd.up.railway.app
@@ -23,11 +23,37 @@
 | Order Preview | ✅ WORKING | Preview before place |
 | Order Placement | ✅ WORKING | FIXED 2026-02-18 |
 | Profit Target (Offset) | ✅ WORKING | $ or % offset from fill price |
-| Auto Fill Checking | ✅ WORKING | Polls every 500ms (v1.3.2) |
+| Auto Fill Checking | ✅ WORKING | Polls every 1 second |
 | Auto Cancel on Timeout | ✅ WORKING | Cancel if not filled within timeout |
 | STOP_LIMIT Orders | ✅ WORKING | Stop price + limit price |
-| **Trailing Stop** | ✅ NEW | v1.5.0 - Confirmation-based with guaranteed profit |
+| **Trailing Stop** | ✅ WORKING | v1.5.0 - Confirmation-based with guaranteed profit |
+| **API Error Handling** | ✅ NEW | v1.5.1 - Handles E*TRADE 500 errors gracefully |
 | Redis Token Storage | ✅ WORKING | Using Redis-Y5_F service |
+
+---
+
+## v1.5.1 - API Error Handling Fix (2026-02-20)
+
+### Problem:
+E*TRADE API sometimes returns 500 errors ("service not currently available") during fill checks. This caused:
+1. Fill check to fail repeatedly
+2. Frontend timeout triggered after 15 seconds
+3. Cancel attempted but got error 5001 ("being executed")
+4. Error 5001 actually means order WAS filled
+5. Trailing stop never placed
+
+### Solution:
+1. **Server-side**: When E*TRADE API returns 500 error, return `api_error: true` flag
+2. **Frontend**: Don't count API errors towards fill timeout
+3. **Cancel endpoint**: Detect error 5001 and return `order_likely_filled: true`
+4. **Frontend**: When cancel returns 5001, re-verify fill status
+
+### Changes:
+- `server.py`: Updated `check_trailing_stop_fill` to handle API errors
+- `server.py`: Updated `cancel_order` to detect error 5001
+- `app.js`: Handle `api_error` flag in trailing stop monitoring
+- `app.js`: Handle error 5001 and re-verify fill status
+- `app.js`: Polling interval changed to 1 second for all monitoring
 
 ---
 

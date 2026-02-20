@@ -1,7 +1,7 @@
 # E*TRADE Trading System - Troubleshooting Guide
 
 > **Last Updated:** 2026-02-20
-> **Current Version:** v1.5.0-trailing-stop
+> **Current Version:** v1.5.1-api-error-handling
 > **Environment:** PRODUCTION
 > **Timezone:** All times in **CST (Central Standard Time)** unless otherwise noted
 > **Purpose:** Quick reference for debugging issues in future sessions
@@ -42,9 +42,9 @@ railway whoami
 
 ### Check Recent Logs
 Look for deployment markers in Railway logs:
-- `FIX4-2026-02-18-PREVIEWIDS-WRAPPER` - Order placement fix
-- `v1.3.0-auto-profit` - Offset-based profit feature
-- `v1.4.0-bracket-orders` - Bracket order feature
+- `v1.5.1-api-error-handling` - API error handling fix
+- `v1.5.0-trailing-stop` - Trailing stop feature
+- `v1.4.0-bracket-orders` - Bracket order feature (failed)
 
 ---
 
@@ -348,6 +348,27 @@ E*TRADE doesn't allow placing two sell orders for the same shares simultaneously
 Use **Trailing Stop** instead of bracket orders. Trailing stop places only ONE exit order (STOP LIMIT), avoiding the share conflict.
 
 **Reference:** v1.5.0 changed from bracket orders to trailing stops for this reason.
+
+---
+
+### Issue 18: Trailing Stop Timeout Despite Fill (FIXED in v1.5.1)
+
+**Symptoms:**
+- Order fills immediately
+- UI shows "Timeout - Order cancelled (not filled within 15s)"
+- Trailing stop never placed
+- Position remains open
+
+**Root Cause:**
+E*TRADE API sometimes returns 500 errors ("service not currently available") when checking order fill status. The system incorrectly interpreted API errors as "order not filled", causing timeout.
+
+Additionally, when cancel was attempted, error 5001 ("being executed") was returned, which actually means the order WAS filled.
+
+**Solution (v1.5.1):**
+1. API 500 errors now return `api_error: true` - doesn't count towards timeout
+2. Cancel error 5001 returns `order_likely_filled: true`
+3. Frontend re-verifies fill status when error 5001 received
+4. Polling interval increased to 1 second for larger orders
 
 ---
 
