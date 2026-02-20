@@ -1,7 +1,7 @@
 # E*TRADE Trading System - Troubleshooting Guide
 
 > **Last Updated:** 2026-02-20
-> **Current Version:** v1.5.3-backoff-fix
+> **Current Version:** v1.5.4-manual-fill
 > **Environment:** PRODUCTION
 > **Timezone:** All times in **CST (Central Standard Time)** unless otherwise noted
 > **Purpose:** Quick reference for debugging issues in future sessions
@@ -42,10 +42,10 @@ railway whoami
 
 ### Check Recent Logs
 Look for deployment markers in Railway logs:
+- `v1.5.4-manual-fill` - Manual fill override for API outages
 - `v1.5.3-backoff-fix` - Fixed exponential backoff implementation
 - `v1.5.2-exponential-backoff` - Exponential backoff (broken)
 - `v1.5.1-api-error-handling` - API error handling fix
-- `v1.5.0-trailing-stop` - Trailing stop feature
 
 ---
 
@@ -418,6 +418,34 @@ New `scheduleNextCheck()` pattern that always waits before making an API call:
 
 ---
 
+### Issue 21: E*TRADE Orders API Returns 500 Errors Persistently
+
+**Symptoms:**
+- Quote API works fine (returns 200)
+- Orders API returns 500 "service not currently available"
+- Orders fill but system cannot detect fill
+- Profit/trailing stop orders never placed
+
+**Root Cause:**
+E*TRADE's Orders API endpoint (`/v1/accounts/{accountIdKey}/orders.json`) is experiencing
+persistent outages. This is an E*TRADE infrastructure issue, not a code problem.
+
+**Solution (v1.5.4):**
+Added manual "Mark as Filled" override:
+1. When API errors occur, manual override section appears
+2. User enters fill price from E*TRADE website
+3. System places profit order or starts trailing stop confirmation
+
+**API Endpoint:**
+```
+POST /api/orders/<order_id>/manual-fill
+Body: {"fill_price": 122.89}
+```
+
+**Recommendation:** Contact E*TRADE API support about Orders API 500 errors.
+
+---
+
 ## Key Files
 
 | File | Purpose |
@@ -551,7 +579,21 @@ railway logs --tail 50 | grep -i redis
 
 ## Session History
 
-### 2026-02-20 Session (Final)
+### 2026-02-20 Session (Final - Manual Fill)
+
+**Issues Fixed:**
+1. Added manual "Mark as Filled" override (v1.5.4)
+   - New endpoint: POST /api/orders/<order_id>/manual-fill
+   - UI section appears when API errors occur
+   - User can enter fill price and trigger profit/trailing stop
+
+**Key Discovery:**
+- E*TRADE Orders API returns 500 errors persistently
+- Quote API works fine simultaneously
+- This is an E*TRADE infrastructure issue
+- Manual override is the workaround
+
+### 2026-02-20 Session (Backoff Fix)
 
 **Issues Fixed:**
 1. Fixed exponential backoff implementation (v1.5.3)
