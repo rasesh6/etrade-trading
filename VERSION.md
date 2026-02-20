@@ -1,8 +1,8 @@
 # E*TRADE Trading System - Version History
 
-## Current Version: v1.5.4-manual-fill
+## Current Version: v1.5.3-backoff-fix
 
-**Status: WORKING - Manual Fill Override for API Outages**
+**Status: WORKING - Fixed Exponential Backoff Implementation**
 **Commit:** (pending)
 **Date:** 2026-02-20
 **Deployed At:** https://web-production-9f73cd.up.railway.app
@@ -29,42 +29,7 @@
 | **Trailing Stop** | ✅ WORKING | v1.5.0 - Confirmation-based with guaranteed profit |
 | **API Error Handling** | ✅ WORKING | v1.5.1 - Handles E*TRADE 500 errors gracefully |
 | **Exponential Backoff** | ✅ WORKING | v1.5.3 - Fixed implementation |
-| **Manual Fill Override** | ✅ NEW | v1.5.4 - Manual fill when API is down |
 | Redis Token Storage | ✅ WORKING | Using Redis-Y5_F service |
-
----
-
-## v1.5.4 - Manual Fill Override (2026-02-20)
-
-### Problem:
-E*TRADE Orders API frequently returns 500 errors ("service not currently available").
-Even with exponential backoff, orders fill but profit/trailing stop orders cannot be placed
-because the API never reports the fill.
-
-### Solution:
-Added manual "Mark as Filled" override:
-- When API errors occur, a manual override section appears
-- User enters the fill price (from E*TRADE website or other source)
-- System places profit order or starts trailing stop confirmation
-
-### New Features:
-1. **Manual Fill Section in UI**
-   - Appears after API errors
-   - Fill price input field
-   - "Mark as Filled" button
-   - Hides when API recovers or order fills
-
-2. **New API Endpoint**
-   - `POST /api/orders/<order_id>/manual-fill`
-   - Accepts `fill_price` in request body
-   - Works for both profit target and trailing stop orders
-
-### How to Use:
-1. Place order with profit target or trailing stop
-2. If API is down, "⚠️ API Unavailable - Manual Override" section appears
-3. Check E*TRADE website for actual fill price
-4. Enter fill price and click "Mark as Filled"
-5. System places profit order or starts trailing stop confirmation
 
 ---
 
@@ -228,7 +193,10 @@ When price hits $102:
 
 | Version | Date | Status | Key Changes |
 |---------|------|--------|-------------|
-| v1.5.0 | 2026-02-20 | ✅ CURRENT | Trailing stop (single exit order, guaranteed profit) |
+| v1.5.3 | 2026-02-20 | ✅ CURRENT | Fixed exponential backoff implementation |
+| v1.5.2 | 2026-02-20 | ❌ BUG | Exponential backoff (broken - first call immediate) |
+| v1.5.1 | 2026-02-20 | Working | API error handling, cancel 5001 detection |
+| v1.5.0 | 2026-02-20 | Working | Trailing stop (single exit order, guaranteed profit) |
 | v1.4.0 | 2026-02-19 | ❌ FAILED | Bracket orders failed (error 1037 - two sell orders not allowed) |
 | v1.3.3 | 2026-02-19 | Working | Fixed UI polling order (check fill BEFORE timeout) |
 | v1.3.2 | 2026-02-18 | Working | Faster fill polling (500ms) |
@@ -324,6 +292,7 @@ railway variables
 3. **Trailing Stop Monitoring**: Frontend-based, stops if browser is closed
 4. **Confirmation Timeout**: If price doesn't reach trigger, position remains open
 5. **No OCO Orders**: E*TRADE API doesn't support One-Cancels-Other orders
+6. **E*TRADE Orders API**: Frequently returns 500 errors - may be rate limiting or API instability
 
 ---
 

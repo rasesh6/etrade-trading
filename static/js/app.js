@@ -8,7 +8,6 @@ let currentPriceSource = 'manual';
 let currentAccountIdKey = null;
 let quoteData = null;
 let fillCheckInterval = null;
-let currentMonitoringOrderId = null;  // For manual fill override
 
 // ==================== INITIALIZATION ====================
 
@@ -657,8 +656,6 @@ function startOrderMonitoring(orderId, symbol, quantity, side, offsetType, offse
     const statusContent = document.getElementById('order-status-content');
 
     statusCard.style.display = 'block';
-    currentMonitoringOrderId = orderId;  // Store for manual fill
-    hideManualFillSection();  // Hide manual fill on start
 
     let elapsed = 0;
     const baseInterval = 1000; // Base poll interval: 1 second
@@ -692,14 +689,12 @@ function startOrderMonitoring(orderId, symbol, quantity, side, offsetType, offse
             // If API error, apply exponential backoff
             if (data.api_error) {
                 currentBackoff = currentBackoff === 0 ? 2000 : Math.min(currentBackoff * 2, maxBackoff);
-                showManualFillSection();  // Show manual override option
                 scheduleNextCheck();
                 return;
             }
 
-            // Success - reset backoff and hide manual fill
+            // Success - reset backoff
             currentBackoff = 0;
-            hideManualFillSection();
 
             if (data.success && data.filled) {
                 monitoringActive = false;
@@ -717,7 +712,6 @@ function startOrderMonitoring(orderId, symbol, quantity, side, offsetType, offse
             console.error('Fill check failed:', e);
             // Apply backoff on network errors too
             currentBackoff = currentBackoff === 0 ? 2000 : Math.min(currentBackoff * 2, maxBackoff);
-            showManualFillSection();  // Show manual override option
         }
 
         // ONLY check timeout AFTER fill check (and fill was not detected)
@@ -772,72 +766,6 @@ function updateOrderStatus(message, type = 'info') {
     if (type === 'error') className = 'error-text';
 
     statusContent.innerHTML = `<p class="${className}">${message}</p>`;
-}
-
-// ==================== MANUAL FILL OVERRIDE ====================
-
-function showManualFillSection() {
-    document.getElementById('manual-fill-section').style.display = 'block';
-}
-
-function hideManualFillSection() {
-    document.getElementById('manual-fill-section').style.display = 'none';
-}
-
-async function manualFill() {
-    const fillPrice = parseFloat(document.getElementById('manual-fill-price').value);
-
-    if (!fillPrice || fillPrice <= 0) {
-        alert('Please enter a valid fill price');
-        return;
-    }
-
-    if (!currentMonitoringOrderId) {
-        alert('No order being monitored');
-        return;
-    }
-
-    try {
-        const response = await fetch(`/api/orders/${currentMonitoringOrderId}/manual-fill`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fill_price: fillPrice })
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-            // Stop monitoring
-            if (fillCheckInterval) {
-                clearTimeout(fillCheckInterval);
-                fillCheckInterval = null;
-            }
-
-            hideManualFillSection();
-
-            if (data.type === 'profit_target') {
-                updateOrderStatus(
-                    `✅ Manual override: Filled @ ${formatCurrency(fill_price)}. ` +
-                    `Profit order placed @ ${formatCurrency(data.profit_price)}`,
-                    'success'
-                );
-            } else if (data.type === 'trailing_stop') {
-                updateTrailingStopStatus('waiting_confirmation',
-                    `✅ Manual override: Filled @ ${formatCurrency(fill_price)}. ` +
-                    `Waiting for price to reach ${formatCurrency(data.trigger_price)}...`
-                );
-                // Continue monitoring for confirmation
-                return;
-            }
-
-            loadOrders(currentAccountIdKey);
-            loadPositions(currentAccountIdKey);
-        } else {
-            alert('Manual fill failed: ' + data.error);
-        }
-    } catch (e) {
-        alert('Manual fill failed: ' + e.message);
-    }
 }
 
 // ==================== RESPONSE DISPLAY ====================
@@ -920,8 +848,6 @@ function startTrailingStopMonitoring(orderId, symbol, quantity, side, trailingSt
     const statusContent = document.getElementById('order-status-content');
 
     statusCard.style.display = 'block';
-    currentMonitoringOrderId = orderId;  // Store for manual fill
-    hideManualFillSection();  // Hide manual fill on start
 
     const baseInterval = 1000; // Base poll interval: 1 second
     const maxBackoff = 16000; // Max backoff: 16 seconds
@@ -970,7 +896,6 @@ function startTrailingStopMonitoring(orderId, symbol, quantity, side, trailingSt
                     currentBackoff = 0; // Reset backoff
                     elapsedSeconds = 0; // Reset for confirmation phase
                     trailingStopState = 'waiting_confirmation';
-                    hideManualFillSection();  // Hide manual fill once filled
                     updateTrailingStopStatus('waiting_confirmation',
                         `✅ Filled @ ${formatCurrency(fillData.fill_price)}. ` +
                         `Waiting for price to reach ${formatCurrency(fillData.trigger_price)}...`
@@ -979,11 +904,9 @@ function startTrailingStopMonitoring(orderId, symbol, quantity, side, trailingSt
                 // If API error, apply exponential backoff
                 else if (fillData.api_error) {
                     currentBackoff = currentBackoff === 0 ? 2000 : Math.min(currentBackoff * 2, maxBackoff);
-                    showManualFillSection();  // Show manual override option
                 }
                 else {
                     currentBackoff = 0; // Reset backoff on successful response
-                    hideManualFillSection();  // Hide manual fill if API working
                 }
 
                 // CHECK FOR FILL TIMEOUT
