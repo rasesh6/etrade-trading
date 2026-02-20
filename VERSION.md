@@ -1,8 +1,8 @@
 # E*TRADE Trading System - Version History
 
-## Current Version: v1.5.1-api-error-handling
+## Current Version: v1.5.2-exponential-backoff
 
-**Status: WORKING - Improved API Error Handling**
+**Status: WORKING - Exponential Backoff for API Errors**
 **Commit:** (pending)
 **Date:** 2026-02-20
 **Deployed At:** https://web-production-9f73cd.up.railway.app
@@ -27,8 +27,31 @@
 | Auto Cancel on Timeout | ✅ WORKING | Cancel if not filled within timeout |
 | STOP_LIMIT Orders | ✅ WORKING | Stop price + limit price |
 | **Trailing Stop** | ✅ WORKING | v1.5.0 - Confirmation-based with guaranteed profit |
-| **API Error Handling** | ✅ NEW | v1.5.1 - Handles E*TRADE 500 errors gracefully |
+| **API Error Handling** | ✅ WORKING | v1.5.1 - Handles E*TRADE 500 errors gracefully |
+| **Exponential Backoff** | ✅ NEW | v1.5.2 - Backs off on API errors (2s, 4s, 8s, 16s max) |
 | Redis Token Storage | ✅ WORKING | Using Redis-Y5_F service |
+
+---
+
+## v1.5.2 - Exponential Backoff (2026-02-20)
+
+### Problem:
+E*TRADE API was returning repeated 500 errors. The system was polling every 1 second
+even during API outages, which may have contributed to rate limiting issues.
+
+### Solution:
+Implemented exponential backoff for API error handling:
+- Normal polling: 1 second
+- First API error: 2 second delay
+- Second consecutive error: 4 second delay
+- Third: 8 second delay
+- Max: 16 second delay
+- Resets to 1 second on successful response
+
+### Changes:
+- `app.js`: Rewrote `startOrderMonitoring` with exponential backoff
+- `app.js`: Rewrote `startTrailingStopMonitoring` with exponential backoff
+- Both use setTimeout recursively instead of setInterval for variable delays
 
 ---
 
