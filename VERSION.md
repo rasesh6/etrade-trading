@@ -1,8 +1,8 @@
 # E*TRADE Trading System - Version History
 
-## Current Version: v1.5.2-exponential-backoff
+## Current Version: v1.5.3-backoff-fix
 
-**Status: WORKING - Exponential Backoff for API Errors**
+**Status: WORKING - Fixed Exponential Backoff Implementation**
 **Commit:** (pending)
 **Date:** 2026-02-20
 **Deployed At:** https://web-production-9f73cd.up.railway.app
@@ -28,8 +28,47 @@
 | STOP_LIMIT Orders | ✅ WORKING | Stop price + limit price |
 | **Trailing Stop** | ✅ WORKING | v1.5.0 - Confirmation-based with guaranteed profit |
 | **API Error Handling** | ✅ WORKING | v1.5.1 - Handles E*TRADE 500 errors gracefully |
-| **Exponential Backoff** | ✅ NEW | v1.5.2 - Backs off on API errors (2s, 4s, 8s, 16s max) |
+| **Exponential Backoff** | ✅ WORKING | v1.5.3 - Fixed implementation (was broken in v1.5.2) |
 | Redis Token Storage | ✅ WORKING | Using Redis-Y5_F service |
+
+---
+
+## v1.5.3 - Fixed Exponential Backoff (2026-02-20)
+
+### Problem:
+v1.5.2's exponential backoff was broken - API calls were still happening every ~300-500ms.
+
+### Root Cause:
+The old code called `checkFill()` immediately without any delay:
+```javascript
+// BROKEN - first call happens immediately
+checkFill();
+
+async function checkFill() {
+    setTimeout(async () => {
+        // ... check logic ...
+        checkFill(); // only subsequent calls are delayed
+    }, waitTime);
+}
+```
+
+### Solution:
+New pattern using `scheduleNextCheck()`:
+```javascript
+// FIXED - always wait before API call
+function scheduleNextCheck() {
+    fillCheckInterval = setTimeout(doCheckFill, waitTime);
+}
+
+function doCheckFill() {
+    // ... check logic ...
+    scheduleNextCheck(); // schedule next with proper delay
+}
+
+scheduleNextCheck(); // start - waits 1s before first check
+```
+
+This ensures proper delays between ALL API calls, including the first one.
 
 ---
 

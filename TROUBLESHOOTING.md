@@ -1,7 +1,7 @@
 # E*TRADE Trading System - Troubleshooting Guide
 
 > **Last Updated:** 2026-02-20
-> **Current Version:** v1.5.2-exponential-backoff
+> **Current Version:** v1.5.3-backoff-fix
 > **Environment:** PRODUCTION
 > **Timezone:** All times in **CST (Central Standard Time)** unless otherwise noted
 > **Purpose:** Quick reference for debugging issues in future sessions
@@ -42,10 +42,10 @@ railway whoami
 
 ### Check Recent Logs
 Look for deployment markers in Railway logs:
-- `v1.5.2-exponential-backoff` - Exponential backoff for API errors
+- `v1.5.3-backoff-fix` - Fixed exponential backoff implementation
+- `v1.5.2-exponential-backoff` - Exponential backoff (broken)
 - `v1.5.1-api-error-handling` - API error handling fix
 - `v1.5.0-trailing-stop` - Trailing stop feature
-- `v1.4.0-bracket-orders` - Bracket order feature (failed)
 
 ---
 
@@ -397,6 +397,27 @@ This reduces API load during outages and helps avoid rate limiting.
 
 ---
 
+### Issue 20: Exponential Backoff Not Working (FIXED in v1.5.3)
+
+**Symptoms:**
+- E*TRADE API returns 500 errors
+- UI shows "backing off" but requests still happen every ~300-500ms
+- Timeout still triggers after 15 seconds
+
+**Root Cause:**
+The v1.5.2 implementation was broken - `checkFill()` was called immediately
+without any delay. Only subsequent calls were delayed by setTimeout.
+
+**Solution (v1.5.3):**
+New `scheduleNextCheck()` pattern that always waits before making an API call:
+1. `scheduleNextCheck()` sets timeout THEN calls check function
+2. Check function does its work and calls `scheduleNextCheck()` again
+3. This ensures proper delays between ALL API calls, including the first one
+
+**Key insight:** The delay must happen BEFORE the API call, not just between calls.
+
+---
+
 ## Key Files
 
 | File | Purpose |
@@ -529,6 +550,18 @@ railway logs --tail 50 | grep -i redis
 ---
 
 ## Session History
+
+### 2026-02-20 Session (Final)
+
+**Issues Fixed:**
+1. Fixed exponential backoff implementation (v1.5.3)
+   - Old code called checkFill() immediately - no delay on first call
+   - New pattern: scheduleNextCheck() always waits before API call
+
+**Key Discovery:**
+- The backoff delay must happen BEFORE the API call, not just between calls
+- Old pattern: call immediately, then setTimeout for next call
+- New pattern: setTimeout first, then call
 
 ### 2026-02-20 Session (Late)
 
