@@ -90,6 +90,25 @@
                     <div id="order-status-content">
                         <p class="placeholder-text">No active orders</p>
                     </div>
+                    <!-- Manual Fill Section (shown when API is down) -->
+                    <div id="manual-fill-section" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+                        <h4 style="margin-bottom: 10px; color: #dc3545;">⚠️ API Unavailable - Manual Override</h4>
+                        <p class="small-text" style="margin-bottom: 10px;">If you know the order filled, enter the fill price to manually place the profit/trailing stop order:</p>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Fill Price</label>
+                                <div class="price-input">
+                                    <span>$</span>
+                                    <input type="number" id="manual-fill-price" placeholder="0.00" step="0.01" min="0.01">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <button class="btn btn-warning" onclick="manualFill()" style="margin-top: 22px;">
+                                    Mark as Filled
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
