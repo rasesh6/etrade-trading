@@ -754,11 +754,8 @@ function startOrderMonitoring(orderId, symbol, quantity, side, offsetType, offse
         if (!monitoringActive) return;
 
         const waitTime = currentBackoff > 0 ? currentBackoff : baseInterval;
-        // Only count base polling interval towards soft timeout, NOT backoff time
-        if (currentBackoff === 0) {
-            elapsed += waitTime / 1000;
-        }
-        // Always count towards hard timeout (safety net)
+        // Count ALL time towards timeout (including backoff)
+        elapsed += waitTime / 1000;
         hardTimeout += waitTime / 1000;
 
         fillCheckInterval = setTimeout(doCheckFill, waitTime);
@@ -880,11 +877,8 @@ function startTrailingStopMonitoring(orderId, symbol, quantity, side, trailingSt
         if (!monitoringActive) return;
 
         const waitTime = currentBackoff > 0 ? currentBackoff : baseInterval;
-        // Only count base polling interval towards soft timeout, NOT backoff time
-        if (currentBackoff === 0) {
-            elapsedSeconds += waitTime / 1000;
-        }
-        // Always count towards hard timeout (safety net)
+        // Count ALL time towards timeout (including backoff)
+        elapsedSeconds += waitTime / 1000;
         hardTimeout += waitTime / 1000;
 
         fillCheckInterval = setTimeout(doMonitor, waitTime);
