@@ -658,6 +658,8 @@ function startOrderMonitoring(orderId, symbol, quantity, side, offsetType, offse
     statusCard.style.display = 'block';
 
     let elapsed = 0;
+    let hardTimeout = 0; // Track total real time (including backoff)
+    const maxHardTimeout = 300; // Hard limit: 5 minutes max regardless of API status
     const baseInterval = 1000; // Base poll interval: 1 second
     const maxBackoff = 16000; // Max backoff: 16 seconds
     let currentBackoff = 0; // Current backoff (0 = no backoff)
@@ -676,7 +678,7 @@ function startOrderMonitoring(orderId, symbol, quantity, side, offsetType, offse
 
         // Update status display
         if (currentBackoff > 0) {
-            updateOrderStatus(`⏳ API error - backing off ${currentBackoff/1000}s... (${Math.floor(elapsed)}/${timeout}s)`);
+            updateOrderStatus(`⏳ API error - backing off ${currentBackoff/1000}s... (${Math.floor(elapsed)}/${timeout}s, max ${maxHardTimeout}s)`);
         } else {
             updateOrderStatus(`Waiting for ${symbol} order to fill... (${Math.floor(elapsed)}/${timeout}s)`);
         }
@@ -715,9 +717,11 @@ function startOrderMonitoring(orderId, symbol, quantity, side, offsetType, offse
         }
 
         // ONLY check timeout AFTER fill check (and fill was not detected)
-        if (elapsed >= timeout) {
+        // Check soft timeout (polling attempts) OR hard timeout (total time)
+        if (elapsed >= timeout || hardTimeout >= maxHardTimeout) {
             monitoringActive = false;
-            updateOrderStatus(`Timeout reached. Cancelling order...`);
+            const reason = hardTimeout >= maxHardTimeout ? `Hard timeout (${maxHardTimeout}s max during API outage)` : `Timeout reached`;
+            updateOrderStatus(`${reason}. Cancelling order...`);
 
             // Cancel the order
             try {
@@ -750,11 +754,12 @@ function startOrderMonitoring(orderId, symbol, quantity, side, offsetType, offse
         if (!monitoringActive) return;
 
         const waitTime = currentBackoff > 0 ? currentBackoff : baseInterval;
-        // Only count base polling interval towards timeout, NOT backoff time
-        // Backoff is for API outages - shouldn't penalize the user
+        // Only count base polling interval towards soft timeout, NOT backoff time
         if (currentBackoff === 0) {
             elapsed += waitTime / 1000;
         }
+        // Always count towards hard timeout (safety net)
+        hardTimeout += waitTime / 1000;
 
         fillCheckInterval = setTimeout(doCheckFill, waitTime);
     }
@@ -856,8 +861,10 @@ function startTrailingStopMonitoring(orderId, symbol, quantity, side, trailingSt
     const baseInterval = 1000; // Base poll interval: 1 second
     const maxBackoff = 16000; // Max backoff: 16 seconds
     const fillTimeout = trailingStopConfig.fill_timeout || 15;
+    const maxHardTimeout = 300; // Hard limit: 5 minutes max
     let trailingStopState = 'waiting_fill';
     let elapsedSeconds = 0;
+    let hardTimeout = 0;
     let currentBackoff = 0;
     let monitoringActive = true;
 
@@ -873,16 +880,31 @@ function startTrailingStopMonitoring(orderId, symbol, quantity, side, trailingSt
         if (!monitoringActive) return;
 
         const waitTime = currentBackoff > 0 ? currentBackoff : baseInterval;
-        // Only count base polling interval towards timeout, NOT backoff time
+        // Only count base polling interval towards soft timeout, NOT backoff time
         if (currentBackoff === 0) {
             elapsedSeconds += waitTime / 1000;
         }
+        // Always count towards hard timeout (safety net)
+        hardTimeout += waitTime / 1000;
 
         fillCheckInterval = setTimeout(doMonitor, waitTime);
     }
 
     async function doMonitor() {
         if (!monitoringActive) return;
+
+        // Check hard timeout (safety net for API outages)
+        if (hardTimeout >= maxHardTimeout) {
+            monitoringActive = false;
+            updateTrailingStopStatus('error', `Hard timeout (${maxHardTimeout}s). Cancelling order...`);
+            try {
+                await fetch(`/api/trailing-stops/${orderId}/cancel`, { method: 'POST' });
+                updateTrailingStopStatus('error', `Order cancelled (API outage timeout)`);
+            } catch (e) {
+                updateTrailingStopStatus('error', `Failed to cancel: ${e.message}`);
+            }
+            return;
+        }
 
         try {
             if (trailingStopState === 'waiting_fill') {
