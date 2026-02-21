@@ -14,6 +14,7 @@
                 <span class="logo-dot"></span>
                 <span class="logo-text">ETRADE</span>
                 <span class="badge" id="env-badge">{{ environment }}</span>
+                <span class="badge auth-badge" id="auth-badge">Not Connected</span>
             </div>
             <div class="header-right" id="auth-section">
                 <div id="auth-not-authenticated">
@@ -26,6 +27,7 @@
                 </div>
                 <div id="auth-authenticated" style="display: none;">
                     <span class="auth-status">● Connected</span>
+                    <span class="token-info" id="token-expires"></span>
                     <button class="btn btn-danger btn-sm" onclick="logout()">Disconnect</button>
                 </div>
             </div>
