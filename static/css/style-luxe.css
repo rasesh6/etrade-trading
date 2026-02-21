@@ -382,6 +382,14 @@ select {
 .quote-detail .value.ask { color: var(--bear); }
 .quote-detail .size { font-size: 0.625rem; color: var(--text-tertiary); }
 
+.quote-extra {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.625rem;
+    color: var(--text-tertiary);
+    margin-top: 4px;
+}
+
 /* Profit Section */
 .profit-section {
     margin-top: 8px;
