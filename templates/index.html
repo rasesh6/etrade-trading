@@ -8,85 +8,65 @@
 </head>
 <body>
     <div class="container">
-        <!-- Header -->
-        <header class="header">
-            <h1>E*TRADE Stock Trading</h1>
-            <div class="header-badges">
+        <!-- Compact Header with Auth -->
+        <header class="header-compact">
+            <div class="header-left">
+                <span class="logo-dot"></span>
+                <span class="logo-text">ETRADE</span>
                 <span class="badge" id="env-badge">{{ environment }}</span>
-                <span class="badge auth-badge" id="auth-badge">Not Connected</span>
             </div>
-        </header>
-
-        <!-- Auth Section -->
-        <div class="card auth-card" id="auth-section">
-            <h2>Authentication</h2>
-            <div id="auth-not-authenticated">
-                <p class="info-text">Click to start OAuth login flow. You'll authorize the app on E*TRADE's website and enter a verification code.</p>
-                <button class="btn btn-primary" onclick="startLogin()">Connect to E*TRADE</button>
-            </div>
-            <div id="auth-flow" style="display: none;">
-                <div class="auth-steps">
-                    <p><strong>Step 1:</strong> Click the link below to authorize</p>
-                    <a id="auth-url" href="#" target="_blank" class="auth-link">Open E*TRADE Authorization</a>
-                    <p><strong>Step 2:</strong> Enter the verification code from the page</p>
-                    <div class="input-group">
-                        <input type="text" id="verifier-code" placeholder="Enter verification code">
-                        <button class="btn btn-success" onclick="verifyCode()">Verify</button>
-                    </div>
+            <div class="header-right" id="auth-section">
+                <div id="auth-not-authenticated">
+                    <button class="btn btn-primary btn-sm" onclick="startLogin()">Connect</button>
+                </div>
+                <div id="auth-flow" style="display: none;">
+                    <a id="auth-url" href="#" target="_blank" class="auth-link-sm">Authorize</a>
+                    <input type="text" id="verifier-code" placeholder="Code" class="input-sm">
+                    <button class="btn btn-success btn-sm" onclick="verifyCode()">Verify</button>
+                </div>
+                <div id="auth-authenticated" style="display: none;">
+                    <span class="auth-status">● Connected</span>
+                    <button class="btn btn-danger btn-sm" onclick="logout()">Disconnect</button>
                 </div>
             </div>
-            <div id="auth-authenticated" style="display: none;">
-                <p class="success-text">Authenticated</p>
-                <p class="small-text">Token expires: <span id="token-expires">-</span></p>
-                <button class="btn btn-danger btn-small" onclick="logout()">Disconnect</button>
-            </div>
-        </div>
+        </header>
 
         <!-- Main Grid -->
         <div class="main-grid">
             <!-- Left Column: Account & Portfolio -->
             <div class="column">
-                <!-- Account Selection -->
-                <div class="card">
-                    <h2>Account</h2>
-                    <select id="account-select" onchange="loadAccountInfo()">
-                        <option value="">Select an account...</option>
-                    </select>
-                    <div id="account-balance" class="balance-display" style="display: none;">
-                        <div class="balance-row">
-                            <span>Net Account Value:</span>
-                            <span id="net-value">-</span>
-                        </div>
-                        <div class="balance-row">
-                            <span>Cash Available:</span>
-                            <span id="cash-available">-</span>
-                        </div>
-                        <div class="balance-row">
-                            <span>Buying Power:</span>
-                            <span id="buying-power">-</span>
+                <!-- Account Selection + Balance in one card -->
+                <div class="card compact">
+                    <div class="card-row">
+                        <select id="account-select" onchange="loadAccountInfo()" class="account-select">
+                            <option value="">Select account...</option>
+                        </select>
+                        <div id="account-balance" class="balance-inline" style="display: none;">
+                            <span class="balance-item"><span class="lbl">Cash:</span> <span id="cash-available">-</span></span>
+                            <span class="balance-item"><span class="lbl">BP:</span> <span id="buying-power">-</span></span>
                         </div>
                     </div>
                 </div>
 
-                <!-- Portfolio -->
-                <div class="card">
+                <!-- Positions -->
+                <div class="card compact">
                     <h2>Positions</h2>
                     <div id="positions-list" class="positions-list">
-                        <p class="placeholder-text">Select an account to view positions</p>
+                        <p class="placeholder-text">Select account</p>
                     </div>
                 </div>
 
                 <!-- Open Orders -->
-                <div class="card">
-                    <h2>Open Orders</h2>
+                <div class="card compact">
+                    <h2>Orders</h2>
                     <div id="orders-list" class="orders-list">
-                        <p class="placeholder-text">No open orders</p>
+                        <p class="placeholder-text">No orders</p>
                     </div>
                 </div>
 
                 <!-- Order Status (for automatic fill checking) -->
-                <div class="card" id="order-status-card" style="display: none;">
-                    <h2>Order Status</h2>
+                <div class="card compact" id="order-status-card" style="display: none;">
+                    <h2>Status</h2>
                     <div id="order-status-content">
                         <p class="placeholder-text">No active orders</p>
                     </div>
@@ -95,214 +75,93 @@
 
             <!-- Right Column: Order Entry -->
             <div class="column">
-                <!-- Quote Display -->
-                <div class="card quote-card">
-                    <h2>Market Quote</h2>
-                    <div class="quote-input">
-                        <input type="text" id="quote-symbol" placeholder="Symbol (e.g., AAPL)" maxlength="5" style="text-transform: uppercase;">
-                        <button class="btn btn-secondary" onclick="fetchQuote()">Get Quote</button>
-                    </div>
-                    <div id="quote-display" class="quote-display" style="display: none;">
-                        <div class="quote-header">
-                            <span class="quote-symbol" id="q-symbol">-</span>
-                            <span class="quote-price" id="q-last">-</span>
-                        </div>
-                        <div class="quote-change" id="q-change">-</div>
-                        <div class="quote-details">
-                            <div class="quote-detail">
-                                <span class="label">BID</span>
-                                <span class="value bid" id="q-bid">-</span>
-                                <span class="size" id="q-bid-size">-</span>
-                            </div>
-                            <div class="quote-detail">
-                                <span class="label">ASK</span>
-                                <span class="value ask" id="q-ask">-</span>
-                                <span class="size" id="q-ask-size">-</span>
-                            </div>
-                        </div>
-                        <div class="quote-extra">
-                            <span>Vol: <span id="q-volume">-</span></span>
-                            <span>Day: <span id="q-range">-</span></span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Order Form -->
+                <!-- Compact Quote + Order in one card -->
                 <div class="card order-card">
-                    <h2>Place Order</h2>
-
-                    <div class="form-group">
-                        <label>Symbol</label>
-                        <input type="text" id="order-symbol" placeholder="e.g., AAPL" maxlength="5" style="text-transform: uppercase;">
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Quantity</label>
-                            <input type="number" id="order-quantity" value="1" min="1" max="100000">
-                        </div>
-                        <div class="form-group">
-                            <label>Order Type</label>
-                            <select id="order-type" onchange="toggleLimitPrice()">
-                                <option value="MARKET">Market</option>
-                                <option value="LIMIT">Limit</option>
-                            </select>
+                    <!-- Quote inline with order -->
+                    <div class="quote-inline">
+                        <input type="text" id="quote-symbol" placeholder="Symbol" maxlength="5" class="symbol-input">
+                        <button class="btn btn-secondary btn-sm" onclick="fetchQuote()">Quote</button>
+                        <div id="quote-display" class="quote-prices" style="display: none;">
+                            <span class="price-main" id="q-last">-</span>
+                            <span class="price-bid">B: <span id="q-bid">-</span></span>
+                            <span class="price-ask">A: <span id="q-ask">-</span></span>
                         </div>
                     </div>
 
-                    <div id="limit-price-section" class="limit-section" style="display: none;">
-                        <label>Limit Price</label>
-                        <div class="price-source-selector">
-                            <button class="price-source-btn active" data-source="manual" onclick="setPriceSource('manual')">Manual</button>
-                            <button class="price-source-btn" data-source="bid" onclick="setPriceSource('bid')">BID</button>
-                            <button class="price-source-btn" data-source="ask" onclick="setPriceSource('ask')">ASK</button>
-                        </div>
-                        <div id="manual-price-input">
-                            <div class="price-input">
-                                <span>$</span>
-                                <input type="number" id="limit-price" placeholder="0.00" step="0.01" min="0.01">
+                    <div class="order-form-compact">
+                        <div class="form-row-compact">
+                            <div class="form-group-sm">
+                                <label>Symbol</label>
+                                <input type="text" id="order-symbol" placeholder="AAPL" maxlength="5">
+                            </div>
+                            <div class="form-group-sm">
+                                <label>Qty</label>
+                                <input type="number" id="order-quantity" value="1" min="1">
+                            </div>
+                            <div class="form-group-sm">
+                                <label>Type</label>
+                                <select id="order-type" onchange="toggleLimitPrice()">
+                                    <option value="MARKET">MKT</option>
+                                    <option value="LIMIT">LMT</option>
+                                </select>
+                            </div>
+                            <div class="form-group-sm" id="limit-price-col" style="display: none;">
+                                <label>Limit</label>
+                                <input type="number" id="limit-price" placeholder="0.00" step="0.01">
                             </div>
                         </div>
-                        <div id="market-price-display" style="display: none;" class="market-price-info">
-                            Will use <strong id="price-source-label">-</strong> price at order time
-                        </div>
-                    </div>
 
-                    <!-- Profit Target Section -->
-                    <div class="profit-section">
-                        <div class="profit-header">
-                            <label>
+                        <!-- Profit Target - Compact -->
+                        <div class="toggle-row">
+                            <label class="toggle-label">
                                 <input type="checkbox" id="enable-profit-target" onchange="toggleProfitTarget()">
-                                Add Profit Target
+                                <span>Profit Target</span>
                             </label>
-                        </div>
-                        <div id="profit-target-input" style="display: none;">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>Offset Type</label>
-                                    <select id="profit-offset-type" onchange="updateProfitLabel()">
-                                        <option value="dollar">$ Offset</option>
-                                        <option value="percent">% Offset</option>
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label id="profit-offset-label">Offset ($)</label>
-                                    <div class="price-input">
-                                        <span id="profit-offset-prefix">$</span>
-                                        <input type="number" id="profit-offset" placeholder="1.00" step="0.01" min="0.01">
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="form-group">
-                                <label>Fill Timeout (seconds)</label>
-                                <input type="number" id="fill-timeout" value="15" min="5" max="60">
-                                <p class="small-text info">If order not filled within this time, it will be cancelled. Profit order uses fill price + offset.</p>
+                            <div id="profit-target-input" class="toggle-content" style="display: none;">
+                                <select id="profit-offset-type" class="select-sm">
+                                    <option value="dollar">$</option>
+                                    <option value="percent">%</option>
+                                </select>
+                                <input type="number" id="profit-offset" placeholder="1.00" step="0.01" class="input-sm">
+                                <span class="text-muted">offset</span>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Trailing Stop Section -->
-                    <div class="profit-section bracket-section">
-                        <div class="profit-header">
-                            <label>
+                        <!-- Trailing Stop - Compact -->
+                        <div class="toggle-row">
+                            <label class="toggle-label">
                                 <input type="checkbox" id="enable-trailing-stop" onchange="toggleTrailingStop()">
-                                Add Trailing Stop (Confirmation-Based)
+                                <span>Trailing Stop</span>
                             </label>
-                        </div>
-                        <div id="trailing-stop-input" style="display: none;">
-                            <p class="small-text info bracket-info">
-                                Wait for price to move up by trigger amount, then place STOP LIMIT order.
-                                <strong>Guaranteed profit when stop fills!</strong>
-                            </p>
-
-                            <!-- Upper Trigger (Confirmation) -->
-                            <div class="bracket-subsection">
-                                <label class="subsection-label">Upper Trigger ($)</label>
-                                <p class="small-text">Wait for price to rise this much from fill before placing stop</p>
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <select id="trailing-stop-trigger-type">
-                                            <option value="dollar">$</option>
-                                            <option value="percent">%</option>
-                                        </select>
-                                    </div>
-                                    <div class="form-group flex-grow">
-                                        <input type="number" id="trailing-stop-trigger-offset" placeholder="0.50" step="0.01" min="0.01" value="0.50">
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Stop Offset from Trigger -->
-                            <div class="bracket-subsection">
-                                <label class="subsection-label">Stop Offset ($)</label>
-                                <p class="small-text">Stop placed this much below trigger price (still above fill = profit)</p>
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <select id="trailing-stop-stop-type">
-                                            <option value="dollar">$</option>
-                                            <option value="percent">%</option>
-                                        </select>
-                                    </div>
-                                    <div class="form-group flex-grow">
-                                        <input type="number" id="trailing-stop-stop-offset" placeholder="0.25" step="0.01" min="0.01" value="0.25">
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Timeouts -->
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>Fill Timeout (sec)</label>
-                                    <input type="number" id="trailing-stop-fill-timeout" value="15" min="5" max="60">
-                                </div>
-                                <div class="form-group">
-                                    <label>Confirm Timeout (sec)</label>
-                                    <input type="number" id="trailing-stop-confirm-timeout" value="300" min="30" max="3600">
+                            <div id="trailing-stop-input" class="toggle-content" style="display: none;">
+                                <div class="trailing-compact">
+                                    <span class="text-muted">Trigger:</span>
+                                    <select id="trailing-stop-trigger-type" class="select-sm">
+                                        <option value="dollar">$</option>
+                                        <option value="percent">%</option>
+                                    </select>
+                                    <input type="number" id="trailing-stop-trigger-offset" value="0.50" step="0.01" class="input-sm">
+                                    <span class="text-muted">Stop:</span>
+                                    <select id="trailing-stop-stop-type" class="select-sm">
+                                        <option value="dollar">$</option>
+                                        <option value="percent">%</option>
+                                    </select>
+                                    <input type="number" id="trailing-stop-stop-offset" value="0.25" step="0.01" class="input-sm">
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <div class="side-selector">
-                        <button class="side-btn buy active" onclick="setSide('BUY')">
-                            <span class="side-label">BUY</span>
-                        </button>
-                        <button class="side-btn sell" onclick="setSide('SELL')">
-                            <span class="side-label">SELL</span>
+                        <!-- Side Selector -->
+                        <div class="side-selector-compact">
+                            <button class="side-btn-sm buy active" onclick="setSide('BUY')">BUY</button>
+                            <button class="side-btn-sm sell" onclick="setSide('SELL')">SELL</button>
+                        </div>
+
+                        <!-- Submit -->
+                        <button class="btn btn-buy btn-block" id="place-order-btn" onclick="placeOrder()">
+                            Place Buy Order
                         </button>
                     </div>
-
-                    <div class="order-summary">
-                        <h3>Order Summary</h3>
-                        <div class="summary-row">
-                            <span>Action:</span>
-                            <span id="sum-action" class="buy-text">BUY</span>
-                        </div>
-                        <div class="summary-row">
-                            <span>Symbol:</span>
-                            <span id="sum-symbol">-</span>
-                        </div>
-                        <div class="summary-row">
-                            <span>Quantity:</span>
-                            <span id="sum-quantity">1</span>
-                        </div>
-                        <div class="summary-row">
-                            <span>Type:</span>
-                            <span id="sum-type">Market</span>
-                        </div>
-                        <div class="summary-row" id="sum-price-row" style="display: none;">
-                            <span>Limit Price:</span>
-                            <span id="sum-price">-</span>
-                        </div>
-                        <div class="summary-row" id="sum-est-row" style="display: none;">
-                            <span>Est. Total:</span>
-                            <span id="sum-est">-</span>
-                        </div>
-                    </div>
-
-                    <button class="btn btn-buy" id="place-order-btn" onclick="placeOrder()">
-                        Place Buy Order
-                    </button>
                 </div>
 
                 <!-- Response -->
