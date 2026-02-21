@@ -750,7 +750,11 @@ function startOrderMonitoring(orderId, symbol, quantity, side, offsetType, offse
         if (!monitoringActive) return;
 
         const waitTime = currentBackoff > 0 ? currentBackoff : baseInterval;
-        elapsed += waitTime / 1000;
+        // Only count base polling interval towards timeout, NOT backoff time
+        // Backoff is for API outages - shouldn't penalize the user
+        if (currentBackoff === 0) {
+            elapsed += waitTime / 1000;
+        }
 
         fillCheckInterval = setTimeout(doCheckFill, waitTime);
     }
@@ -869,7 +873,10 @@ function startTrailingStopMonitoring(orderId, symbol, quantity, side, trailingSt
         if (!monitoringActive) return;
 
         const waitTime = currentBackoff > 0 ? currentBackoff : baseInterval;
-        elapsedSeconds += waitTime / 1000;
+        // Only count base polling interval towards timeout, NOT backoff time
+        if (currentBackoff === 0) {
+            elapsedSeconds += waitTime / 1000;
+        }
 
         fillCheckInterval = setTimeout(doMonitor, waitTime);
     }
