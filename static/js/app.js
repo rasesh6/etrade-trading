@@ -265,7 +265,7 @@ async function loadPositions(accountIdKey) {
 
 async function loadOrders(accountIdKey) {
     try {
-        const response = await fetch(`/api/accounts/${accountIdKey}/orders?status=OPEN`);
+        const response = await fetch(`/api/orders/${accountIdKey}?status=OPEN`);
         const data = await response.json();
 
         const container = document.getElementById('orders-list');
