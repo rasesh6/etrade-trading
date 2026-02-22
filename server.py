@@ -289,10 +289,15 @@ def get_portfolio(account_id_key):
         # Simplify positions
         result = []
         for pos in positions:
+            quantity = pos.get('quantity', 0)
+            price_paid = pos.get('pricePaid', 0)
+            cost_per_share = price_paid / quantity if quantity > 0 else 0
+
             result.append({
                 'symbol': pos.get('symbolDescription'),
-                'quantity': pos.get('quantity'),
-                'price_paid': pos.get('pricePaid'),
+                'quantity': quantity,
+                'cost_per_share': cost_per_share,
+                'total_cost': price_paid,
                 'market_value': pos.get('marketValue'),
                 'total_gain': pos.get('totalGain'),
                 'last_price': pos.get('Quick', {}).get('lastTrade') if 'Quick' in pos else None

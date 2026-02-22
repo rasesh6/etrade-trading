@@ -271,7 +271,7 @@ async function loadOrders(accountIdKey) {
         const container = document.getElementById('orders-list');
 
         if (!data.success) {
-            container.innerHTML = '<p class="placeholder-text">API error - cannot load</p>';
+            container.innerHTML = '<p class="placeholder-text error-text">API error - E*TRADE orders service unavailable</p>';
             return;
         }
 
@@ -280,7 +280,7 @@ async function loadOrders(accountIdKey) {
                 <div class="order-item">
                     <div class="order-main">
                         <span class="order-symbol">${order.symbol || 'N/A'}</span>
-                        <span class="order-action">${order.action || ''}</span>
+                        <span class="order-action ${order.action}">${order.action || ''}</span>
                         <span class="order-qty">${order.quantity || 0}</span>
                     </div>
                     <div class="order-details">
@@ -298,7 +298,7 @@ async function loadOrders(accountIdKey) {
         }
     } catch (error) {
         console.error('Load orders failed:', error);
-        document.getElementById('orders-list').innerHTML = '<p class="placeholder-text">Failed to load</p>';
+        document.getElementById('orders-list').innerHTML = '<p class="placeholder-text error-text">E*TRADE API error</p>';
     }
 }
 
