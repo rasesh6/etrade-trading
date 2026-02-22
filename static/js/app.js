@@ -242,11 +242,15 @@ async function loadPositions(accountIdKey) {
         if (data.success && data.positions.length > 0) {
             container.innerHTML = data.positions.map(pos => `
                 <div class="position-item">
-                    <div>
+                    <div class="pos-main">
                         <span class="position-symbol">${pos.symbol || 'N/A'}</span>
-                        <span class="position-qty"> x ${pos.quantity || 0}</span>
+                        <span class="position-qty">${pos.quantity || 0} shares</span>
                     </div>
-                    <div class="position-gain ${pos.total_gain >= 0 ? 'positive' : 'negative'}">
+                    <div class="pos-details">
+                        <span class="pos-cost">Cost: ${formatCurrency(pos.cost_per_share)}</span>
+                        <span class="pos-value">Value: ${formatCurrency(pos.market_value)}</span>
+                    </div>
+                    <div class="position-pnl ${pos.total_gain >= 0 ? 'positive' : 'negative'}">
                         ${formatCurrency(pos.total_gain)}
                     </div>
                 </div>
@@ -266,18 +270,26 @@ async function loadOrders(accountIdKey) {
 
         const container = document.getElementById('orders-list');
 
-        if (data.success && data.orders.length > 0) {
+        if (!data.success) {
+            container.innerHTML = '<p class="placeholder-text">API error - cannot load</p>';
+            return;
+        }
+
+        if (data.orders && data.orders.length > 0) {
             container.innerHTML = data.orders.map(order => `
                 <div class="order-item">
-                    <div>
+                    <div class="order-main">
                         <span class="order-symbol">${order.symbol || 'N/A'}</span>
-                        <span>${order.action || ''} ${order.quantity || 0}</span>
-                        <span>@ ${order.limit_price || 'MKT'}</span>
+                        <span class="order-action">${order.action || ''}</span>
+                        <span class="order-qty">${order.quantity || 0}</span>
+                    </div>
+                    <div class="order-details">
+                        <span class="order-type">${order.price_type || 'MKT'}</span>
+                        <span class="order-price">@ ${order.limit_price ? formatCurrency(order.limit_price) : 'MKT'}</span>
+                        <span class="order-status">${order.status || ''}</span>
                     </div>
                     <div class="order-actions">
-                        <button class="btn btn-small btn-danger" onclick="cancelOrder('${accountIdKey}', '${order.order_id}')">
-                            Cancel
-                        </button>
+                        <button class="btn btn-small btn-danger" onclick="cancelOrder('${accountIdKey}', '${order.order_id}')">✕</button>
                     </div>
                 </div>
             `).join('');
@@ -286,6 +298,7 @@ async function loadOrders(accountIdKey) {
         }
     } catch (error) {
         console.error('Load orders failed:', error);
+        document.getElementById('orders-list').innerHTML = '<p class="placeholder-text">Failed to load</p>';
     }
 }
 

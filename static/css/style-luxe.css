@@ -301,22 +301,83 @@ select {
 
 /* Positions & Orders */
 .positions-list, .orders-list {
-    max-height: 150px;
+    max-height: 200px;
     overflow-y: auto;
 }
 
-.position-item, .order-item {
+.position-item {
     display: flex;
-    justify-content: space-between;
-    padding: 4px 6px;
+    flex-direction: column;
+    padding: 6px 8px;
     background: var(--bg-base);
     border-radius: var(--radius-sm);
-    margin-bottom: 2px;
+    margin-bottom: 4px;
+    font-size: 0.75rem;
+    border-left: 2px solid var(--border-subtle);
+}
+
+.position-item .pos-main {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.position-item .pos-details {
+    display: flex;
+    gap: 12px;
+    font-size: 0.625rem;
+    color: var(--text-tertiary);
+    margin-top: 2px;
+}
+
+.position-symbol {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+}
+
+.position-qty {
+    color: var(--text-secondary);
+}
+
+.position-pnl.positive { color: var(--bull); font-weight: 600; }
+.position-pnl.negative { color: var(--bear); font-weight: 600; }
+
+.order-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 8px;
+    background: var(--bg-base);
+    border-radius: var(--radius-sm);
+    margin-bottom: 4px;
     font-size: 0.75rem;
 }
 
-.position-pnl.positive { color: var(--bull); }
-.position-pnl.negative { color: var(--bear); }
+.order-item .order-main {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.order-item .order-details {
+    display: flex;
+    gap: 8px;
+    font-size: 0.625rem;
+    color: var(--text-tertiary);
+}
+
+.order-symbol {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+}
+
+.order-action.BUY { color: var(--bull); }
+.order-action.SELL { color: var(--bear); }
+
+.order-actions {
+    display: flex;
+    gap: 4px;
+}
 
 .placeholder-text {
     color: var(--text-tertiary);
