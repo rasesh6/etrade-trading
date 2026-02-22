@@ -289,15 +289,14 @@ def get_portfolio(account_id_key):
         # Simplify positions
         result = []
         for pos in positions:
-            quantity = pos.get('quantity', 0)
-            price_paid = pos.get('pricePaid', 0)
-            cost_per_share = price_paid / quantity if quantity > 0 else 0
-
+            # E*TRADE returns costPerShare directly - use it!
+            # pricePaid is actually the same as costPerShare (per-share cost)
+            # totalCost is the actual total cost
             result.append({
                 'symbol': pos.get('symbolDescription'),
-                'quantity': quantity,
-                'cost_per_share': cost_per_share,
-                'total_cost': price_paid,
+                'quantity': pos.get('quantity'),
+                'cost_per_share': pos.get('costPerShare'),  # E*TRADE's field
+                'total_cost': pos.get('totalCost'),
                 'market_value': pos.get('marketValue'),
                 'total_gain': pos.get('totalGain'),
                 'last_price': pos.get('Quick', {}).get('lastTrade') if 'Quick' in pos else None
