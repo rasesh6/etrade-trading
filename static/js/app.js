@@ -658,14 +658,9 @@ function startOrderMonitoring(orderId, symbol, quantity, side, offsetType, offse
     statusCard.style.display = 'block';
 
     let elapsed = 0;
-    let hardTimeout = 0; // Track total real time (including backoff)
-    const maxHardTimeout = 300; // Hard limit: 5 minutes max regardless of API status
-    const baseInterval = 1000; // Base poll interval: 1 second
-    const maxBackoff = 16000; // Max backoff: 16 seconds
-    let currentBackoff = 0; // Current backoff (0 = no backoff)
     let monitoringActive = true;
 
-    // Clear any existing interval/timeout
+    // Clear any existing interval
     if (fillCheckInterval) {
         clearInterval(fillCheckInterval);
         clearTimeout(fillCheckInterval);
@@ -673,66 +668,45 @@ function startOrderMonitoring(orderId, symbol, quantity, side, offsetType, offse
 
     updateOrderStatus(`Waiting for ${symbol} order to fill... (0/${timeout}s)`);
 
-    async function doCheckFill() {
+    async function checkFill() {
         if (!monitoringActive) return;
 
-        // Update status display
-        if (currentBackoff > 0) {
-            updateOrderStatus(`⏳ API error - backing off ${currentBackoff/1000}s... (${Math.floor(elapsed)}/${timeout}s, max ${maxHardTimeout}s)`);
-        } else {
-            updateOrderStatus(`Waiting for ${symbol} order to fill... (${Math.floor(elapsed)}/${timeout}s)`);
-        }
+        elapsed++;
+        updateOrderStatus(`Waiting for ${symbol} order to fill... (${elapsed}/${timeout}s)`);
 
-        // CHECK FOR FILL FIRST - before checking timeout
+        // Check if filled
         try {
             const response = await fetch(`/api/orders/${currentAccountIdKey}/check-fill/${orderId}`);
             const data = await response.json();
 
-            // If API error, apply exponential backoff
-            if (data.api_error) {
-                currentBackoff = currentBackoff === 0 ? 2000 : Math.min(currentBackoff * 2, maxBackoff);
-                scheduleNextCheck();
-                return;
-            }
-
-            // Success - reset backoff
-            currentBackoff = 0;
-
             if (data.success && data.filled) {
                 monitoringActive = false;
+                clearInterval(fillCheckInterval);
                 if (data.profit_order_placed) {
                     updateOrderStatus(`✅ Order filled @ ${formatCurrency(data.fill_price)}. Profit order placed @ ${formatCurrency(data.profit_price)}`, 'success');
                 } else {
                     updateOrderStatus(`✅ Order filled @ ${formatCurrency(data.fill_price)}`, 'success');
                 }
-
                 loadOrders(currentAccountIdKey);
                 loadPositions(currentAccountIdKey);
-                return; // Done - order filled
+                return;
             }
         } catch (e) {
             console.error('Fill check failed:', e);
-            // Apply backoff on network errors too
-            currentBackoff = currentBackoff === 0 ? 2000 : Math.min(currentBackoff * 2, maxBackoff);
         }
 
-        // ONLY check timeout AFTER fill check (and fill was not detected)
-        // Check soft timeout (polling attempts) OR hard timeout (total time)
-        if (elapsed >= timeout || hardTimeout >= maxHardTimeout) {
+        // Check timeout AFTER fill check
+        if (elapsed >= timeout) {
             monitoringActive = false;
-            const reason = hardTimeout >= maxHardTimeout ? `Hard timeout (${maxHardTimeout}s max during API outage)` : `Timeout reached`;
-            updateOrderStatus(`${reason}. Cancelling order...`);
+            clearInterval(fillCheckInterval);
+            updateOrderStatus(`Timeout. Cancelling order...`);
 
-            // Cancel the order
             try {
-                const cancelResponse = await fetch(`/api/orders/${currentAccountIdKey}/${orderId}/cancel`, {
-                    method: 'POST'
-                });
+                const cancelResponse = await fetch(`/api/orders/${currentAccountIdKey}/${orderId}/cancel`, { method: 'POST' });
                 const cancelData = await cancelResponse.json();
 
-                // Error 5001 means order is being executed (likely filled!)
                 if (!cancelData.success && (cancelData.error?.includes('5001') || cancelData.error?.includes('being executed'))) {
-                    updateOrderStatus(`⚠️ Order may have filled during cancel. Please check positions.`, 'error');
+                    updateOrderStatus(`⚠️ Order may have filled. Please check positions.`, 'error');
                     loadOrders(currentAccountIdKey);
                     loadPositions(currentAccountIdKey);
                     return;
@@ -741,28 +715,13 @@ function startOrderMonitoring(orderId, symbol, quantity, side, offsetType, offse
                 updateOrderStatus(`Order cancelled (not filled within ${timeout}s)`, 'error');
                 loadOrders(currentAccountIdKey);
             } catch (e) {
-                updateOrderStatus(`Failed to cancel order: ${e.message}`, 'error');
+                updateOrderStatus(`Failed to cancel: ${e.message}`, 'error');
             }
-            return;
         }
-
-        // Continue monitoring
-        scheduleNextCheck();
     }
 
-    function scheduleNextCheck() {
-        if (!monitoringActive) return;
-
-        const waitTime = currentBackoff > 0 ? currentBackoff : baseInterval;
-        // Count ALL time towards timeout (including backoff)
-        elapsed += waitTime / 1000;
-        hardTimeout += waitTime / 1000;
-
-        fillCheckInterval = setTimeout(doCheckFill, waitTime);
-    }
-
-    // Start monitoring - wait 1 second before first check
-    scheduleNextCheck();
+    // Poll every 1 second
+    fillCheckInterval = setInterval(checkFill, 1000);
 }
 
 function updateOrderStatus(message, type = 'info') {
@@ -855,17 +814,14 @@ function startTrailingStopMonitoring(orderId, symbol, quantity, side, trailingSt
 
     statusCard.style.display = 'block';
 
-    const baseInterval = 1000; // Base poll interval: 1 second
-    const maxBackoff = 16000; // Max backoff: 16 seconds
     const fillTimeout = trailingStopConfig.fill_timeout || 15;
-    const maxHardTimeout = 300; // Hard limit: 5 minutes max
+    const confirmTimeout = trailingStopConfig.confirm_timeout || 300;
     let trailingStopState = 'waiting_fill';
     let elapsedSeconds = 0;
-    let hardTimeout = 0;
-    let currentBackoff = 0;
+    let confirmElapsed = 0;
     let monitoringActive = true;
 
-    // Clear any existing interval/timeout
+    // Clear any existing interval
     if (fillCheckInterval) {
         clearInterval(fillCheckInterval);
         clearTimeout(fillCheckInterval);
@@ -873,196 +829,101 @@ function startTrailingStopMonitoring(orderId, symbol, quantity, side, trailingSt
 
     updateTrailingStopStatus('waiting_fill', `Waiting for ${symbol} order to fill... (0/${fillTimeout}s)`);
 
-    function scheduleNextCheck() {
-        if (!monitoringActive) return;
-
-        const waitTime = currentBackoff > 0 ? currentBackoff : baseInterval;
-        // Count ALL time towards timeout (including backoff)
-        elapsedSeconds += waitTime / 1000;
-        hardTimeout += waitTime / 1000;
-
-        fillCheckInterval = setTimeout(doMonitor, waitTime);
-    }
-
     async function doMonitor() {
         if (!monitoringActive) return;
 
-        // Check hard timeout (safety net for API outages)
-        if (hardTimeout >= maxHardTimeout) {
-            monitoringActive = false;
-            updateTrailingStopStatus('error', `Hard timeout (${maxHardTimeout}s). Cancelling order...`);
-            try {
-                await fetch(`/api/trailing-stops/${orderId}/cancel`, { method: 'POST' });
-                updateTrailingStopStatus('error', `Order cancelled (API outage timeout)`);
-            } catch (e) {
-                updateTrailingStopStatus('error', `Failed to cancel: ${e.message}`);
-            }
-            return;
-        }
-
         try {
             if (trailingStopState === 'waiting_fill') {
-                // Update status with elapsed time
-                if (currentBackoff > 0) {
-                    updateTrailingStopStatus('waiting_fill',
-                        `⏳ API error - backing off ${currentBackoff/1000}s... (${Math.floor(elapsedSeconds)}/${fillTimeout}s)`
-                    );
-                } else {
-                    updateTrailingStopStatus('waiting_fill', `Waiting for ${symbol} order to fill... (${Math.floor(elapsedSeconds)}/${fillTimeout}s)`);
-                }
+                elapsedSeconds++;
+                updateTrailingStopStatus('waiting_fill', `Waiting for ${symbol} order to fill... (${elapsedSeconds}/${fillTimeout}s)`);
 
-                // Check if opening order filled
                 const fillResponse = await fetch(`/api/trailing-stops/${orderId}/check-fill`);
                 const fillData = await fillResponse.json();
 
                 if (fillData.filled) {
-                    currentBackoff = 0; // Reset backoff
-                    elapsedSeconds = 0; // Reset for confirmation phase
+                    elapsedSeconds = 0;
                     trailingStopState = 'waiting_confirmation';
                     updateTrailingStopStatus('waiting_confirmation',
-                        `✅ Filled @ ${formatCurrency(fillData.fill_price)}. ` +
-                        `Waiting for price to reach ${formatCurrency(fillData.trigger_price)}...`
+                        `✅ Filled @ ${formatCurrency(fillData.fill_price)}. Waiting for trigger...`
                     );
-                }
-                // If API error, apply exponential backoff
-                else if (fillData.api_error) {
-                    currentBackoff = currentBackoff === 0 ? 2000 : Math.min(currentBackoff * 2, maxBackoff);
-                }
-                else {
-                    currentBackoff = 0; // Reset backoff on successful response
+                    return;
                 }
 
-                // CHECK FOR FILL TIMEOUT
-                if (!fillData.filled && elapsedSeconds >= fillTimeout) {
+                // Check fill timeout
+                if (elapsedSeconds >= fillTimeout) {
                     monitoringActive = false;
-                    // Cancel the order
+                    clearInterval(fillCheckInterval);
+                    updateTrailingStopStatus('timeout', `Timeout. Cancelling order...`);
+
                     try {
-                        const cancelResponse = await fetch(`/api/orders/${currentAccountIdKey}/${orderId}/cancel`, {
-                            method: 'POST'
-                        });
+                        const cancelResponse = await fetch(`/api/orders/${currentAccountIdKey}/${orderId}/cancel`, { method: 'POST' });
                         const cancelData = await cancelResponse.json();
 
-                        // Error 5001 means order is being executed (likely filled!)
                         if (!cancelData.success && (cancelData.error?.includes('5001') || cancelData.error?.includes('being executed'))) {
-                            updateTrailingStopStatus('waiting_fill',
-                                `⚠️ Order may have filled during cancel. Please check positions.`
-                            );
+                            updateTrailingStopStatus('timeout', `⚠️ Order may have filled. Check positions.`);
                             loadOrders(currentAccountIdKey);
                             loadPositions(currentAccountIdKey);
                             return;
                         }
 
-                        updateTrailingStopStatus('timeout',
-                            `Order cancelled (not filled within ${fillTimeout}s)`
-                        );
+                        updateTrailingStopStatus('timeout', `Order cancelled (not filled within ${fillTimeout}s)`);
                         loadOrders(currentAccountIdKey);
                     } catch (e) {
-                        updateTrailingStopStatus('error', `Failed to cancel order: ${e.message}`);
+                        updateTrailingStopStatus('error', `Failed to cancel: ${e.message}`);
                     }
-                    return;
                 }
-
-                scheduleNextCheck();
-            }
-            else if (trailingStopState === 'verifying_fill') {
-                // After error 5001, verify if order actually filled
-                const verifyResponse = await fetch(`/api/trailing-stops/${orderId}/check-fill`);
-                const verifyData = await verifyResponse.json();
-
-                if (verifyData.filled) {
-                    elapsedSeconds = 0;
-                    trailingStopState = 'waiting_confirmation';
-                    updateTrailingStopStatus('waiting_confirmation',
-                        `✅ Filled @ ${formatCurrency(verifyData.fill_price)}. ` +
-                        `Waiting for price to reach ${formatCurrency(verifyData.trigger_price)}...`
-                    );
-                } else {
-                    updateTrailingStopStatus('timeout',
-                        `⚠️ Order status unclear. Please check positions manually.`
-                    );
-                    loadOrders(currentAccountIdKey);
-                    return;
-                }
-                scheduleNextCheck();
             }
             else if (trailingStopState === 'waiting_confirmation') {
-                // Check if confirmation reached
+                confirmElapsed++;
                 const confirmResponse = await fetch(`/api/trailing-stops/${orderId}/check-confirmation`);
                 const confirmData = await confirmResponse.json();
-
-                if (confirmData.timeout) {
-                    updateTrailingStopStatus('timeout',
-                        `⚠️ Confirmation timeout - price did not reach trigger. ` +
-                        `Position remains open without trailing stop.`
-                    );
-                    return;
-                }
 
                 if (confirmData.confirmed && confirmData.stop_placed) {
                     trailingStopState = 'stop_active';
                     updateTrailingStopStatus('stop_active',
-                        `✅ Confirmation reached @ ${formatCurrency(confirmData.current_price)}!<br>` +
-                        `STOP LIMIT placed @ ${formatCurrency(confirmData.stop_price)} (limit ${formatCurrency(confirmData.stop_limit_price)})<br>` +
-                        `Min guaranteed profit: ${formatCurrency(confirmData.min_profit)}/share`
+                        `✅ STOP LIMIT placed @ ${formatCurrency(confirmData.stop_price)}`
                     );
-                } else if (confirmData.current_price) {
-                    const triggerPrice = confirmData.trigger_price;
-                    const currentPrice = confirmData.current_price;
-                    const fillPrice = confirmData.fill_price;
+                    return;
+                }
 
-                    // Calculate progress for visual feedback
-                    let progress = '';
-                    if (side === 'BUY') {
-                        const totalMove = triggerPrice - fillPrice;
-                        const currentMove = currentPrice - fillPrice;
-                        const pct = Math.min(100, Math.max(0, (currentMove / totalMove) * 100));
-                        progress = `Progress: ${pct.toFixed(0)}% (${formatCurrency(currentPrice)} / ${formatCurrency(triggerPrice)})`;
-                    } else {
-                        const totalMove = fillPrice - triggerPrice;
-                        const currentMove = fillPrice - currentPrice;
-                        const pct = Math.min(100, Math.max(0, (currentMove / totalMove) * 100));
-                        progress = `Progress: ${pct.toFixed(0)}% (${formatCurrency(currentPrice)} / ${formatCurrency(triggerPrice)})`;
-                    }
+                if (confirmData.timeout || confirmElapsed >= confirmTimeout) {
+                    updateTrailingStopStatus('timeout',
+                        `⚠️ Confirmation timeout. Position remains open without trailing stop.`
+                    );
+                    clearInterval(fillCheckInterval);
+                    monitoringActive = false;
+                    return;
+                }
 
+                if (confirmData.current_price) {
                     updateTrailingStopStatus('waiting_confirmation',
-                        `Waiting for confirmation...<br>${progress}`
+                        `Waiting for trigger... ${formatCurrency(confirmData.current_price)} → ${formatCurrency(confirmData.trigger_price)} (${confirmElapsed}/${confirmTimeout}s)`
                     );
                 }
-                scheduleNextCheck();
             }
             else if (trailingStopState === 'stop_active') {
-                // Check if stop order filled
                 const stopResponse = await fetch(`/api/trailing-stops/${orderId}/check-stop`);
                 const stopData = await stopResponse.json();
 
                 if (stopData.stop_filled) {
-                    updateTrailingStopStatus('complete',
-                        `🛑 Stop order filled!<br>` +
-                        `Guaranteed profit locked in: ${formatCurrency(stopData.min_profit)}/share`
-                    );
+                    monitoringActive = false;
+                    clearInterval(fillCheckInterval);
+                    updateTrailingStopStatus('complete', `🛑 Stop filled! Profit locked.`);
                     loadOrders(currentAccountIdKey);
                     loadPositions(currentAccountIdKey);
                     return;
                 }
 
-                // Still waiting
-                updateTrailingStopStatus('stop_active',
-                    `Trailing stop active - monitoring...<br>` +
-                    `Waiting for price to hit stop.`
-                );
-                scheduleNextCheck();
+                updateTrailingStopStatus('stop_active', `Trailing stop active - monitoring...`);
             }
 
         } catch (e) {
             console.error('Trailing stop monitoring error:', e);
-            // Apply backoff on network errors
-            currentBackoff = currentBackoff === 0 ? 2000 : Math.min(currentBackoff * 2, maxBackoff);
-            scheduleNextCheck();
         }
     }
 
-    // Start monitoring - wait 1 second before first check
-    scheduleNextCheck();
+    // Poll every 1 second
+    fillCheckInterval = setInterval(doMonitor, 1000);
 }
 
 function updateTrailingStopStatus(state, message) {
