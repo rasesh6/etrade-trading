@@ -447,20 +447,47 @@ function setSide(side) {
     updateOrderSummary();
 }
 
-// ==================== PROFIT TARGET ====================
+// ==================== EXIT STRATEGY ====================
 
-function toggleProfitTarget() {
-    const enabled = document.getElementById('enable-profit-target').checked;
-    const inputDiv = document.getElementById('profit-target-input');
-    inputDiv.style.display = enabled ? 'block' : 'none';
+function toggleExitStrategy() {
+    const strategy = document.getElementById('exit-strategy').value;
 
-    // Disable trailing stop when profit target is enabled
-    if (enabled) {
-        document.getElementById('enable-trailing-stop').checked = false;
-        document.getElementById('trailing-stop-input').style.display = 'none';
+    // Hide all strategy inputs
+    document.getElementById('profit-target-input').style.display = 'none';
+    document.getElementById('confirmation-stop-input').style.display = 'none';
+    document.getElementById('trailing-stop-input').style.display = 'none';
+
+    // Show the selected strategy input
+    if (strategy === 'profit-target') {
+        document.getElementById('profit-target-input').style.display = 'block';
+    } else if (strategy === 'confirmation-stop') {
+        document.getElementById('confirmation-stop-input').style.display = 'block';
+    } else if (strategy === 'trailing-stop') {
+        document.getElementById('trailing-stop-input').style.display = 'block';
     }
 
     updateOrderSummary();
+}
+
+// Keep old function names for compatibility
+function toggleProfitTarget() {
+    const strategySelect = document.getElementById('exit-strategy');
+    if (document.getElementById('enable-profit-target')?.checked) {
+        strategySelect.value = 'profit-target';
+    } else {
+        strategySelect.value = 'none';
+    }
+    toggleExitStrategy();
+}
+
+function toggleTrailingStop() {
+    const strategySelect = document.getElementById('exit-strategy');
+    if (document.getElementById('enable-trailing-stop')?.checked) {
+        strategySelect.value = 'confirmation-stop';
+    } else {
+        strategySelect.value = 'none';
+    }
+    toggleExitStrategy();
 }
 
 function updateProfitLabel() {
@@ -534,6 +561,7 @@ async function placeOrder() {
     const symbol = document.getElementById('order-symbol').value.trim().toUpperCase();
     const quantity = parseInt(document.getElementById('order-quantity').value) || 0;
     const orderType = document.getElementById('order-type').value;
+    const exitStrategy = document.getElementById('exit-strategy').value;
     let limitPrice = null;
 
     // Validation
@@ -559,7 +587,7 @@ async function placeOrder() {
     }
 
     // Check for profit target (simple profit)
-    const enableProfitTarget = document.getElementById('enable-profit-target').checked;
+    const enableProfitTarget = exitStrategy === 'profit-target';
     const profitOffsetType = enableProfitTarget ? document.getElementById('profit-offset-type').value : null;
     const profitOffset = enableProfitTarget ? parseFloat(document.getElementById('profit-offset').value) || 0 : null;
     const fillTimeout = enableProfitTarget ? parseInt(document.getElementById('fill-timeout').value) || 15 : null;
@@ -569,11 +597,11 @@ async function placeOrder() {
         return;
     }
 
-    // Check for trailing stop order
-    const enableTrailingStop = document.getElementById('enable-trailing-stop').checked;
+    // Check for confirmation stop order
+    const enableConfirmationStop = exitStrategy === 'confirmation-stop';
     let trailingStopParams = {};
 
-    if (enableTrailingStop) {
+    if (enableConfirmationStop) {
         const triggerOffset = parseFloat(document.getElementById('trailing-stop-trigger-offset').value) || 0;
         const stopOffset = parseFloat(document.getElementById('trailing-stop-stop-offset').value) || 0;
 
@@ -627,8 +655,8 @@ async function placeOrder() {
             showResponse('success', 'Order Placed', data.order);
             loadOrders(currentAccountIdKey);  // Refresh orders list
 
-            // If trailing stop enabled, start trailing stop monitoring
-            if (enableTrailingStop && data.order.order_id && data.order.trailing_stop) {
+            // If confirmation stop enabled, start monitoring
+            if (enableConfirmationStop && data.order.order_id && data.order.trailing_stop) {
                 startTrailingStopMonitoring(
                     data.order.order_id,
                     symbol,
@@ -805,21 +833,6 @@ function formatNumber(value) {
 }
 
 // ==================== TRAILING STOP FUNCTIONS ====================
-
-function toggleTrailingStop() {
-    const enabled = document.getElementById('enable-trailing-stop').checked;
-    const trailingStopInput = document.getElementById('trailing-stop-input');
-
-    trailingStopInput.style.display = enabled ? 'block' : 'none';
-
-    // Disable simple profit target when trailing stop is enabled
-    if (enabled) {
-        document.getElementById('enable-profit-target').checked = false;
-        document.getElementById('profit-target-input').style.display = 'none';
-    }
-
-    updateOrderSummary();
-}
 
 function startTrailingStopMonitoring(orderId, symbol, quantity, side, trailingStopConfig) {
     const statusCard = document.getElementById('order-status-card');

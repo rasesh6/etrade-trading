@@ -1,6 +1,6 @@
 # E*TRADE Trading System - Version History
 
-## Current Version: v1.5.6
+## Current Version: v1.5.7
 
 **Status: WORKING - Premium UI Design**
 **Commit:** (pending)
@@ -26,12 +26,32 @@
 | Auto Fill Checking | ✅ WORKING | Polls every 1 second |
 | Auto Cancel on Timeout | ✅ WORKING | Cancel if not filled within timeout |
 | STOP_LIMIT Orders | ✅ WORKING | Stop price + limit price |
-| **Confirmation Stop** | ✅ WORKING | v1.5.0 - Confirmation-based with guaranteed profit (renamed from Trailing Stop) |
+| **Confirmation Stop** | ✅ WORKING | v1.5.0 - Confirmation-based with guaranteed profit |
+| **Exit Strategy Dropdown** | ✅ WORKING | v1.5.7 - None, Profit Target, Confirmation Stop |
 | **API Error Handling** | ✅ WORKING | v1.5.1 - Handles E*TRADE 500 errors gracefully |
 | **Exponential Backoff** | ✅ WORKING | v1.5.3 - Fixed implementation |
 | **Premium UI** | ✅ WORKING | v1.5.4 - Terminal Luxe design |
-| **Orders List Refresh** | ✅ WORKING | v1.5.6 - Refresh orders after stop placed |
 | Redis Token Storage | ✅ WORKING | Using Redis-Y5_F service |
+
+---
+
+## v1.5.7 - Exit Strategy Dropdown (2026-02-23)
+
+### Changes:
+1. **Replaced two checkboxes with single dropdown** for exit strategy:
+   - None (default)
+   - Profit Target - place LIMIT sell at fill + offset
+   - Confirmation Stop - wait for trigger, then place STOP LIMIT
+   - Trailing Stop ($) - coming soon (disabled in dropdown)
+
+2. **Added strategy descriptions** to explain each option
+
+3. **Fixed orders list not refreshing after confirmation stop placed**
+
+### Files Changed:
+- `templates/index.html` - New dropdown UI with strategy descriptions
+- `static/js/app.js` - toggleExitStrategy() function, updated placeOrder()
+- `static/css/style-luxe.css` - Strategy description styles
 
 ---
 
@@ -263,7 +283,8 @@ When price hits $102:
 
 | Version | Date | Status | Key Changes |
 |---------|------|--------|-------------|
-| v1.5.6 | 2026-02-23 | ✅ CURRENT | Renamed to Confirmation Stop, fixed orders refresh after stop placed |
+| v1.5.7 | 2026-02-23 | ✅ CURRENT | Exit strategy dropdown (None, Profit Target, Confirmation Stop) |
+| v1.5.6 | 2026-02-23 | Working | Renamed to Confirmation Stop, fixed orders refresh |
 | v1.5.5 | 2026-02-23 | Working | Fixed confirmation stop fill not refreshing orders list |
 | v1.5.4 | 2026-02-21 | Working | Premium Terminal Luxe UI design |
 | v1.5.3 | 2026-02-20 | Working | Fixed exponential backoff implementation |

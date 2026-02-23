@@ -458,6 +458,13 @@ select {
     border-top: 1px solid var(--border-subtle);
 }
 
+.profit-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
 .profit-header label {
     display: flex;
     align-items: center;
@@ -465,6 +472,22 @@ select {
     font-size: 0.75rem;
     color: var(--text-secondary);
     cursor: pointer;
+}
+
+.profit-header select {
+    flex: 1;
+    max-width: 200px;
+}
+
+/* Exit Strategy Description */
+.strategy-desc {
+    font-size: 0.625rem;
+    color: var(--text-tertiary);
+    margin-top: 6px;
+    padding: 4px 6px;
+    background: var(--bg-base);
+    border-radius: var(--radius-sm);
+    border-left: 2px solid var(--accent-gold);
 }
 
 .profit-header input[type="checkbox"] {

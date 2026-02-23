@@ -163,15 +163,20 @@
                         </div>
                     </div>
 
-                    <!-- Profit Target Section -->
+                    <!-- Exit Strategy Dropdown -->
                     <div class="profit-section">
                         <div class="profit-header">
-                            <label>
-                                <input type="checkbox" id="enable-profit-target" onchange="toggleProfitTarget()">
-                                Profit Target
-                            </label>
+                            <label>Exit Strategy</label>
+                            <select id="exit-strategy" onchange="toggleExitStrategy()">
+                                <option value="none">None</option>
+                                <option value="profit-target">Profit Target</option>
+                                <option value="confirmation-stop">Confirmation Stop</option>
+                                <option value="trailing-stop" disabled>Trailing Stop ($) - Coming Soon</option>
+                            </select>
                         </div>
-                        <div id="profit-target-input" style="display: none;">
+
+                        <!-- Profit Target Inputs -->
+                        <div id="profit-target-input" class="exit-strategy-input" style="display: none;">
                             <div class="form-row">
                                 <div class="form-group">
                                     <select id="profit-offset-type" onchange="updateProfitLabel()">
@@ -191,18 +196,11 @@
                                     <input type="number" id="fill-timeout" value="15" min="5" max="60">
                                 </div>
                             </div>
+                            <p class="strategy-desc">Place LIMIT sell order at fill price + offset when order fills.</p>
                         </div>
-                    </div>
 
-                    <!-- Confirmation Stop Section -->
-                    <div class="profit-section bracket-section">
-                        <div class="profit-header">
-                            <label>
-                                <input type="checkbox" id="enable-trailing-stop" onchange="toggleTrailingStop()">
-                                Confirmation Stop
-                            </label>
-                        </div>
-                        <div id="trailing-stop-input" style="display: none;">
+                        <!-- Confirmation Stop Inputs -->
+                        <div id="confirmation-stop-input" class="exit-strategy-input" style="display: none;">
                             <div class="bracket-subsection">
                                 <div class="form-row">
                                     <div class="form-group">
@@ -237,6 +235,25 @@
                                     <input type="number" id="trailing-stop-confirm-timeout" value="300" min="30" max="3600">
                                 </div>
                             </div>
+                            <p class="strategy-desc">Wait for price to rise by trigger amount, then place STOP LIMIT order.</p>
+                        </div>
+
+                        <!-- Trailing Stop Inputs (placeholder for future) -->
+                        <div id="trailing-stop-input" class="exit-strategy-input" style="display: none;">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Trail Amount ($)</label>
+                                    <div class="price-input">
+                                        <span>$</span>
+                                        <input type="number" id="trailing-amount" placeholder="0.50" step="0.01" min="0.01">
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label>Fill Timeout (s)</label>
+                                    <input type="number" id="trailing-fill-timeout" value="15" min="5" max="60">
+                                </div>
+                            </div>
+                            <p class="strategy-desc">Place TRAILING_STOP_CNST order that follows price by trail amount.</p>
                         </div>
                     </div>
 
