@@ -626,8 +626,13 @@ async function placeOrder() {
             trailing_stop_confirmation_timeout: parseInt(document.getElementById('trailing-stop-confirm-timeout').value) || 300
         };
     } else if (enableTrailingStopLimit) {
+        const triggerOffset = parseFloat(document.getElementById('trailing-trigger-offset').value) || 0;
         const trailAmount = parseFloat(document.getElementById('trailing-amount').value) || 0;
 
+        if (triggerOffset <= 0) {
+            alert('Please enter a valid trigger offset');
+            return;
+        }
         if (trailAmount <= 0) {
             alert('Please enter a valid trail amount');
             return;
@@ -635,8 +640,12 @@ async function placeOrder() {
 
         trailingStopParams = {
             trailing_stop_limit_enabled: true,
-            trail_amount: trailAmount,
-            fill_timeout: parseInt(document.getElementById('trailing-fill-timeout').value) || 15
+            tsl_trigger_type: document.getElementById('trailing-trigger-type').value,
+            tsl_trigger_offset: triggerOffset,
+            tsl_trail_type: document.getElementById('trailing-amount-type').value,
+            tsl_trail_amount: trailAmount,
+            fill_timeout: parseInt(document.getElementById('trailing-fill-timeout').value) || 15,
+            tsl_trigger_timeout: parseInt(document.getElementById('trailing-trigger-timeout').value) || 300
         };
     }
 
@@ -799,8 +808,11 @@ function startTrailingStopLimitMonitoring(orderId, symbol, quantity, side, tslCo
     statusCard.style.display = 'block';
 
     const fillTimeout = tslConfig.fill_timeout || 15;
-    let elapsedSeconds = 0;
+    const triggerTimeout = tslConfig.trigger_timeout || 300;
+    let fillElapsed = 0;
+    let triggerElapsed = 0;
     let monitoringActive = true;
+    let tslState = 'waiting_fill';  // waiting_fill -> waiting_trigger -> stop_active
 
     // Clear any existing interval
     if (fillCheckInterval) {
@@ -814,53 +826,108 @@ function startTrailingStopLimitMonitoring(orderId, symbol, quantity, side, tslCo
         if (!monitoringActive) return;
 
         try {
-            // State: waiting for fill
-            if (elapsedSeconds < fillTimeout) {
-                elapsedSeconds++;
+            if (tslState === 'waiting_fill') {
+                fillElapsed++;
 
                 const response = await fetch(`/api/trailing-stop-limit/${orderId}/check-fill`);
                 const data = await response.json();
 
                 if (data.filled) {
-                    if (data.trailing_stop_placed) {
+                    if (data.waiting_trigger) {
+                        // Filled, now wait for trigger
+                        tslState = 'waiting_trigger';
+                        updateTrailingStopLimitStatus('waiting_trigger',
+                            `✅ Filled @ ${formatCurrency(data.fill_price)}. Waiting for trigger @ ${formatCurrency(data.trigger_price)}...`
+                        );
+                        return;
+                    } else if (data.trailing_stop_placed) {
+                        // Already placed (edge case)
+                        monitoringActive = false;
+                        clearInterval(fillCheckInterval);
                         updateTrailingStopLimitStatus('stop_active',
-                            `✅ Filled @ ${formatCurrency(data.fill_price)}. Trailing stop limit placed @ ${formatCurrency(data.stop_price)} trail.`
+                            `✅ Filled @ ${formatCurrency(data.fill_price)}. Trailing stop limit active.`
                         );
                         loadOrders(currentAccountIdKey);
                         loadPositions(currentAccountIdKey);
                         return;
                     } else if (data.error) {
+                        monitoringActive = false;
+                        clearInterval(fillCheckInterval);
                         updateTrailingStopLimitStatus('error', `❌ Error: ${data.error}`);
                         loadOrders(currentAccountIdKey);
                         return;
                     }
                 }
 
-                updateTrailingStopLimitStatus('waiting_fill',
-                    `Waiting for fill... (${elapsedSeconds}/${fillTimeout}s)`
-                );
-            } else {
-                // Timeout - cancel order
-                monitoringActive = false;
-                updateTrailingStopLimitStatus('timeout', `Timeout. Cancelling order...`);
+                if (fillElapsed >= fillTimeout) {
+                    // Timeout - cancel order
+                    monitoringActive = false;
+                    clearInterval(fillCheckInterval);
+                    updateTrailingStopLimitStatus('timeout', `Timeout. Cancelling order...`);
 
-                try {
-                    const cancelResponse = await fetch(`/api/trailing-stop-limit/${orderId}/cancel`, { method: 'POST' });
-                    const cancelData = await cancelResponse.json();
+                    try {
+                        const cancelResponse = await fetch(`/api/trailing-stop-limit/${orderId}/cancel`, { method: 'POST' });
+                        const cancelData = await cancelResponse.json();
 
-                    if (cancelData.error?.includes('5001') || cancelData.error?.includes('being executed')) {
-                        updateTrailingStopLimitStatus('error', `⚠️ Order may have filled. Check positions.`);
+                        if (cancelData.error?.includes('5001') || cancelData.error?.includes('being executed')) {
+                            updateTrailingStopLimitStatus('error', `⚠️ Order may have filled. Check positions.`);
+                            loadOrders(currentAccountIdKey);
+                            loadPositions(currentAccountIdKey);
+                            return;
+                        }
+
+                        updateTrailingStopLimitStatus('timeout', `Order cancelled (not filled within ${fillTimeout}s)`);
                         loadOrders(currentAccountIdKey);
-                        loadPositions(currentAccountIdKey);
-                        return;
+                    } catch (e) {
+                        updateTrailingStopLimitStatus('error', `Failed to cancel: ${e.message}`);
                     }
+                    return;
+                }
 
-                    updateTrailingStopLimitStatus('timeout', `Order cancelled (not filled within ${fillTimeout}s)`);
+                updateTrailingStopLimitStatus('waiting_fill',
+                    `Waiting for fill... (${fillElapsed}/${fillTimeout}s)`
+                );
+
+            } else if (tslState === 'waiting_trigger') {
+                triggerElapsed++;
+
+                const response = await fetch(`/api/trailing-stop-limit/${orderId}/check-trigger`);
+                const data = await response.json();
+
+                if (data.triggered && data.trailing_stop_placed) {
+                    monitoringActive = false;
+                    clearInterval(fillCheckInterval);
+                    updateTrailingStopLimitStatus('stop_active',
+                        `✅ Trigger @ ${formatCurrency(data.trigger_price)}. Trailing stop limit placed @ ${formatCurrency(data.trail_amount)} trail.`
+                    );
                     loadOrders(currentAccountIdKey);
-                } catch (e) {
-                    updateTrailingStopLimitStatus('error', `Failed to cancel: ${e.message}`);
+                    loadPositions(currentAccountIdKey);
+                    return;
+                } else if (data.triggered && data.error) {
+                    monitoringActive = false;
+                    clearInterval(fillCheckInterval);
+                    updateTrailingStopLimitStatus('error', `❌ Error placing trailing stop: ${data.error}`);
+                    loadOrders(currentAccountIdKey);
+                    return;
+                }
+
+                if (triggerElapsed >= triggerTimeout) {
+                    monitoringActive = false;
+                    clearInterval(fillCheckInterval);
+                    updateTrailingStopLimitStatus('timeout',
+                        `⚠️ Trigger timeout. Position remains open without trailing stop.`
+                    );
+                    loadOrders(currentAccountIdKey);
+                    return;
+                }
+
+                if (data.current_price) {
+                    updateTrailingStopLimitStatus('waiting_trigger',
+                        `Waiting for trigger... ${formatCurrency(data.current_price)} → ${formatCurrency(data.trigger_price)} (${triggerElapsed}/${triggerTimeout}s)`
+                    );
                 }
             }
+
         } catch (e) {
             console.error('Trailing stop limit monitoring error:', e);
         }
@@ -875,6 +942,7 @@ function updateTrailingStopLimitStatus(state, message) {
 
     const stateLabels = {
         'waiting_fill': '⏳ Waiting for Fill',
+        'waiting_trigger': '📈 Waiting for Trigger',
         'stop_active': '📉 Trailing Stop Limit Active',
         'complete': '✅ Complete',
         'timeout': '⚠️ Timeout',
@@ -883,6 +951,7 @@ function updateTrailingStopLimitStatus(state, message) {
 
     const stateColors = {
         'waiting_fill': '#ffc107',
+        'waiting_trigger': '#17a2b8',
         'stop_active': '#28a745',
         'complete': '#28a745',
         'timeout': '#dc3545',

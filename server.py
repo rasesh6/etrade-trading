@@ -607,26 +607,43 @@ def place_order():
         trailing_stop_limit_response = None
 
         if trailing_stop_limit_enabled and order_id:
-            trail_amount = float(data.get('trail_amount', 0))
+            tsl_trigger_type = data.get('tsl_trigger_type', 'dollar')
+            tsl_trigger_offset = float(data.get('tsl_trigger_offset', 0))
+            tsl_trail_type = data.get('tsl_trail_type', 'dollar')
+            tsl_trail_amount = float(data.get('tsl_trail_amount', 0))
             tsl_fill_timeout = int(data.get('fill_timeout', 15))
+            tsl_trigger_timeout = int(data.get('tsl_trigger_timeout', 300))
 
             _pending_trailing_stop_limit_orders[order_id] = {
                 'symbol': symbol,
                 'quantity': quantity,
-                'trail_amount': trail_amount,
                 'account_id_key': account_id_key,
                 'opening_side': side,
+                # Trigger settings (wait for price to rise before placing trailing stop)
+                'trigger_type': tsl_trigger_type,
+                'trigger_offset': tsl_trigger_offset,
+                'trigger_timeout': tsl_trigger_timeout,
+                # Trail settings (for the trailing stop order)
+                'trail_type': tsl_trail_type,
+                'trail_amount': tsl_trail_amount,
+                # State
                 'fill_timeout': tsl_fill_timeout,
+                'fill_price': None,
+                'trigger_price': None,
                 'stop_order_id': None,
                 'status': 'waiting_fill',
                 'created_at': datetime.utcnow().isoformat()
             }
             trailing_stop_limit_response = {
                 'enabled': True,
-                'trail_amount': trail_amount,
-                'fill_timeout': tsl_fill_timeout
+                'trigger_type': tsl_trigger_type,
+                'trigger_offset': tsl_trigger_offset,
+                'trail_type': tsl_trail_type,
+                'trail_amount': tsl_trail_amount,
+                'fill_timeout': tsl_fill_timeout,
+                'trigger_timeout': tsl_trigger_timeout
             }
-            logger.info(f"Created trailing stop limit for order {order_id}: trail_amount={trail_amount}")
+            logger.info(f"Created trailing stop limit for order {order_id}: trigger={tsl_trigger_offset}({tsl_trigger_type}), trail={tsl_trail_amount}({tsl_trail_type})")
 
         return jsonify({
             'success': True,
@@ -1477,7 +1494,8 @@ def cancel_trailing_stop(opening_order_id):
 @app.route('/api/trailing-stop-limit/<int:order_id>/check-fill', methods=['GET'])
 def check_trailing_stop_limit_fill(order_id):
     """
-    Check if opening order filled and place trailing stop limit if so.
+    Check if opening order filled. If filled, calculate trigger price
+    and transition to waiting_trigger state.
     """
     try:
         tsl = _pending_trailing_stop_limit_orders.get(order_id)
@@ -1487,13 +1505,21 @@ def check_trailing_stop_limit_fill(order_id):
                 'error': f'No trailing stop limit found for order {order_id}'
             })
 
-        # If stop already placed, just return status
+        # If already in waiting_trigger or stop_placed state, return current status
+        if tsl.get('status') == 'waiting_trigger':
+            return jsonify({
+                'filled': True,
+                'waiting_trigger': True,
+                'fill_price': tsl.get('fill_price'),
+                'trigger_price': tsl.get('trigger_price')
+            })
+
         if tsl.get('stop_order_id'):
             return jsonify({
                 'filled': True,
                 'trailing_stop_placed': True,
                 'stop_order_id': tsl['stop_order_id'],
-                'stop_price': tsl.get('stop_price')
+                'fill_price': tsl.get('fill_price')
             })
 
         client = _get_authenticated_client()
@@ -1533,9 +1559,103 @@ def check_trailing_stop_limit_fill(order_id):
 
         logger.info(f"Trailing stop limit order {order_id} filled at {fill_price}")
 
+        # Calculate trigger price
+        trigger_type = tsl.get('trigger_type', 'dollar')
+        trigger_offset = tsl.get('trigger_offset', 0)
+
+        if trigger_type == 'dollar':
+            trigger_price = fill_price + trigger_offset
+        else:
+            trigger_price = fill_price * (1 + trigger_offset / 100)
+
+        trigger_price = round(trigger_price, 2)
+
+        # Update state to waiting_trigger
+        tsl['fill_price'] = fill_price
+        tsl['trigger_price'] = trigger_price
+        tsl['status'] = 'waiting_trigger'
+        tsl['fill_time'] = datetime.utcnow()
+
+        logger.info(f"Trailing stop limit {order_id} waiting for trigger at {trigger_price}")
+
+        return jsonify({
+            'filled': True,
+            'waiting_trigger': True,
+            'fill_price': fill_price,
+            'trigger_price': trigger_price
+        })
+
+    except Exception as e:
+        logger.error(f"Check trailing stop limit fill failed: {e}")
+        return jsonify({'filled': False, 'error': str(e)})
+
+
+@app.route('/api/trailing-stop-limit/<int:order_id>/check-trigger', methods=['GET'])
+def check_trailing_stop_limit_trigger(order_id):
+    """
+    Check if trigger price reached and place trailing stop limit if so.
+    """
+    try:
+        tsl = _pending_trailing_stop_limit_orders.get(order_id)
+        if not tsl:
+            return jsonify({
+                'success': False,
+                'error': f'No trailing stop limit found for order {order_id}'
+            })
+
+        # If stop already placed, return status
+        if tsl.get('stop_order_id'):
+            return jsonify({
+                'triggered': True,
+                'trailing_stop_placed': True,
+                'stop_order_id': tsl['stop_order_id']
+            })
+
+        # If not in waiting_trigger state, return current status
+        if tsl.get('status') != 'waiting_trigger':
+            return jsonify({
+                'triggered': False,
+                'status': tsl.get('status')
+            })
+
+        client = _get_authenticated_client()
+
+        # Get current price from quote
+        quote = client.get_quote(tsl['symbol'])
+        current_price = None
+        if 'All' in quote:
+            current_price = float(quote['All'].get('lastTrade', 0))
+            if current_price == 0:
+                current_price = float(quote['All'].get('bid', 0))
+
+        if not current_price:
+            return jsonify({
+                'triggered': False,
+                'error': 'Could not get current price'
+            })
+
+        trigger_price = tsl.get('trigger_price')
+
+        # Check if trigger reached
+        if current_price < trigger_price:
+            return jsonify({
+                'triggered': False,
+                'current_price': current_price,
+                'trigger_price': trigger_price
+            })
+
+        logger.info(f"Trailing stop limit {order_id} trigger reached at {current_price} (trigger was {trigger_price})")
+
+        # Calculate trail amount
+        trail_type = tsl.get('trail_type', 'dollar')
+        trail_amount = tsl.get('trail_amount', 0)
+
+        if trail_type == 'percent':
+            # Convert percent to dollar amount based on current price
+            trail_amount = round(current_price * trail_amount / 100, 2)
+
         # Place TRAILING_STOP_CNST LIMIT order
         closing_side = 'SELL' if tsl['opening_side'] in ['BUY', 'BUY_TO_COVER'] else 'BUY'
-        trail_amount = tsl['trail_amount']
 
         stop_order_data = {
             'symbol': tsl['symbol'],
@@ -1559,18 +1679,18 @@ def check_trailing_stop_limit_fill(order_id):
 
             logger.info(f"Placed TRAILING_STOP_CNST order {stop_order_id} for {tsl['symbol']} @ trail {trail_amount}")
 
-            # Update pending order
+            # Update state
             tsl['stop_order_id'] = stop_order_id
-            tsl['stop_price'] = trail_amount
-            tsl['fill_price'] = fill_price
+            tsl['trail_amount_used'] = trail_amount
             tsl['status'] = 'stop_placed'
+            tsl['stop_placed_at'] = datetime.utcnow()
 
             return jsonify({
-                'filled': True,
+                'triggered': True,
                 'trailing_stop_placed': True,
-                'fill_price': fill_price,
+                'current_price': current_price,
+                'trigger_price': trigger_price,
                 'stop_order_id': stop_order_id,
-                'stop_price': trail_amount,
                 'trail_amount': trail_amount
             })
 
@@ -1579,14 +1699,14 @@ def check_trailing_stop_limit_fill(order_id):
             tsl['status'] = 'error'
             tsl['error'] = str(e)
             return jsonify({
-                'filled': True,
+                'triggered': True,
                 'trailing_stop_placed': False,
                 'error': str(e)
             })
 
     except Exception as e:
-        logger.error(f"Check trailing stop limit fill failed: {e}")
-        return jsonify({'filled': False, 'error': str(e)})
+        logger.error(f"Check trailing stop limit trigger failed: {e}")
+        return jsonify({'triggered': False, 'error': str(e)})
 
 
 @app.route('/api/trailing-stop-limit/<int:order_id>/cancel', methods=['POST'])

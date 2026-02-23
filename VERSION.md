@@ -1,6 +1,6 @@
 # E*TRADE Trading System - Version History
 
-## Current Version: v1.5.8
+## Current Version: v1.5.9
 
 **Status: WORKING - Premium UI Design**
 **Commit:** (pending)
@@ -27,12 +27,43 @@
 | Auto Cancel on Timeout | ✅ WORKING | Cancel if not filled within timeout |
 | STOP_LIMIT Orders | ✅ WORKING | Stop price + limit price |
 | **Confirmation Stop Limit** | ✅ WORKING | v1.5.0 - Confirmation-based with guaranteed profit |
-| **Trailing Stop Limit ($)** | ✅ WORKING | v1.5.8 - TRAILING_STOP_CNST with limit |
+| **Trailing Stop Limit ($)** | ✅ WORKING | v1.5.9 - TRAILING_STOP_CNST with trigger + limit |
 | **Exit Strategy Dropdown** | ✅ WORKING | v1.5.7 - None, Profit Target, Confirmation Stop Limit, Trailing Stop Limit |
 | **API Error Handling** | ✅ WORKING | v1.5.1 - Handles E*TRADE 500 errors gracefully |
 | **Exponential Backoff** | ✅ WORKING | v1.5.3 - Fixed implementation |
 | **Premium UI** | ✅ WORKING | v1.5.4 - Terminal Luxe design |
 | Redis Token Storage | ✅ WORKING | Using Redis-Y5_F service |
+
+---
+
+## v1.5.9 - Trailing Stop Limit with Trigger (2026-02-23)
+
+### Fix:
+Added trigger offset to Trailing Stop Limit - now works like Confirmation Stop Limit:
+1. Wait for fill
+2. Wait for price to reach trigger (fill_price + trigger_offset)
+3. THEN place TRAILING_STOP_CNST LIMIT order
+
+### UI Updates:
+- Added Trigger field ($ or % offset from fill)
+- Added Trail field ($ or % trailing amount)
+- Added Trigger Timeout setting
+
+### Flow:
+```
+1. Place BUY order with Trailing Stop Limit enabled
+2. Wait for fill (get fill_price)
+3. Calculate trigger_price = fill_price + trigger_offset
+4. Monitor price, wait for current_price >= trigger_price
+5. When triggered:
+   - Place TRAILING_STOP_CNST LIMIT order with specified trail amount
+   - E*TRADE manages the trailing automatically
+```
+
+### Files Changed:
+- `templates/index.html` - Added trigger/trail fields to UI
+- `static/js/app.js` - Updated monitoring with trigger phase
+- `server.py` - Added check-trigger endpoint, trigger logic
 
 ---
 
@@ -311,7 +342,8 @@ When price hits $102:
 
 | Version | Date | Status | Key Changes |
 |---------|------|--------|-------------|
-| v1.5.8 | 2026-02-23 | ✅ CURRENT | Trailing Stop Limit ($), renamed to Confirmation Stop Limit |
+| v1.5.9 | 2026-02-23 | ✅ CURRENT | Trailing Stop Limit with trigger offset |
+| v1.5.8 | 2026-02-23 | Working | Trailing Stop Limit ($), renamed to Confirmation Stop Limit |
 | v1.5.7 | 2026-02-23 | Working | Exit strategy dropdown |
 | v1.5.6 | 2026-02-23 | Working | Renamed to Confirmation Stop, fixed orders refresh |
 | v1.5.5 | 2026-02-23 | Working | Fixed confirmation stop fill not refreshing orders list |

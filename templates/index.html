@@ -240,20 +240,41 @@
 
                         <!-- Trailing Stop Inputs (placeholder for future) -->
                         <div id="trailing-stop-input" class="exit-strategy-input" style="display: none;">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>Trail Amount ($)</label>
-                                    <div class="price-input">
-                                        <span>$</span>
-                                        <input type="number" id="trailing-amount" value="0.50" step="0.01" min="0.01">
+                            <div class="bracket-subsection">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label class="subsection-label">Trigger</label>
+                                        <div class="form-inline">
+                                            <select id="trailing-trigger-type">
+                                                <option value="dollar">$</option>
+                                                <option value="percent">%</option>
+                                            </select>
+                                            <input type="number" id="trailing-trigger-offset" value="0.50" step="0.01" min="0.01">
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="subsection-label">Trail</label>
+                                        <div class="form-inline">
+                                            <select id="trailing-amount-type">
+                                                <option value="dollar">$</option>
+                                                <option value="percent">%</option>
+                                            </select>
+                                            <input type="number" id="trailing-amount" value="0.25" step="0.01" min="0.01">
+                                        </div>
                                     </div>
                                 </div>
+                            </div>
+                            <div class="form-row">
                                 <div class="form-group">
                                     <label>Fill Timeout (s)</label>
                                     <input type="number" id="trailing-fill-timeout" value="15" min="5" max="60">
                                 </div>
+                                <div class="form-group">
+                                    <label>Trigger Timeout (s)</label>
+                                    <input type="number" id="trailing-trigger-timeout" value="300" min="30" max="3600">
+                                </div>
                             </div>
-                            <p class="strategy-desc">Place TRAILING_STOP_CNST LIMIT order that follows price by trail amount.</p>
+                            <p class="strategy-desc">Wait for price trigger, then place TRAILING_STOP_CNST LIMIT that follows price.</p>
                         </div>
                     </div>
 
