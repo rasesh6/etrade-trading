@@ -1525,7 +1525,20 @@ def check_trailing_stop_limit_fill(order_id):
         client = _get_authenticated_client()
 
         # Fetch ALL orders (no status filter) to find the order
-        all_orders = client.get_orders(tsl['account_id_key'], status=None)
+        # Same pattern as working confirmation stop
+        try:
+            all_orders = client.get_orders(tsl['account_id_key'], status=None)
+            logger.info(f"TSL check-fill: Fetched {len(all_orders)} orders")
+        except Exception as api_error:
+            error_msg = str(api_error)
+            logger.warning(f"TSL check-fill: API error fetching orders: {error_msg}")
+            if '500' in error_msg or 'not currently available' in error_msg:
+                return jsonify({
+                    'filled': False,
+                    'api_error': True,
+                    'api_error_message': 'E*TRADE API temporarily unavailable'
+                })
+            raise
 
         fill_price = None
         order_filled = False
@@ -1538,30 +1551,35 @@ def check_trailing_stop_limit_fill(order_id):
             if 'Orders' in order:
                 order = order['Orders']
 
-            order_id_str = str(order.get('orderId', ''))
-            if order_id_str != str(order_id):
+            order_id_from_api = order.get('orderId')
+            if str(order_id_from_api) != str(order_id):
                 continue
 
             found_order = True
             logger.info(f"TSL check-fill: Found order {order_id}")
 
-            # Found the order - check for full fill
-            for detail in order.get('OrderDetail', []):
-                ordered_qty = int(detail.get('orderedQuantity', 0))
-                filled_qty = int(detail.get('filledQuantity', 0))
-                status = detail.get('status', 'UNKNOWN')
+            # Check OrderDetail -> Instrument for fill info (same structure as working confirmation stop)
+            if 'OrderDetail' in order:
+                for detail in order['OrderDetail']:
+                    status = detail.get('status', 'UNKNOWN')
+                    logger.info(f"TSL check-fill: Order {order_id} status={status}")
 
-                logger.info(f"TSL check-fill: Order {order_id} - ordered={ordered_qty}, filled={filled_qty}, status={status}")
+                    if 'Instrument' in detail:
+                        for inst in detail['Instrument']:
+                            filled_qty = int(inst.get('filledQuantity', 0))
+                            ordered_qty = int(inst.get('orderedQuantity', 0))
 
-                if filled_qty >= ordered_qty and ordered_qty > 0:
-                    order_filled = True
-                    # Get fill price from Instrument
-                    for inst in detail.get('Instrument', []):
-                        fill_price = float(inst.get('averageExecutionPrice', 0))
-                        if fill_price > 0:
-                            logger.info(f"TSL check-fill: Got fill_price={fill_price}")
+                            logger.info(f"TSL check-fill: Order {order_id} - ordered={ordered_qty}, filled={filled_qty}")
+
+                            # Only consider filled if FULLY filled (not partial)
+                            if filled_qty > 0 and filled_qty >= ordered_qty:
+                                order_filled = True
+                                if inst.get('averageExecutionPrice'):
+                                    fill_price = float(inst.get('averageExecutionPrice'))
+                                    logger.info(f"TSL check-fill: Order {order_id} FULLY filled at {fill_price}")
+                                    break
+                        if order_filled:
                             break
-                break
             break
 
         if not found_order:
