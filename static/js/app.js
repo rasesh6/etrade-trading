@@ -859,6 +859,7 @@ function startTrailingStopMonitoring(orderId, symbol, quantity, side, trailingSt
                     updateTrailingStopStatus('waiting_confirmation',
                         `✅ Filled @ ${formatCurrency(fillData.fill_price)}. Waiting for trigger...`
                     );
+                    loadOrders(currentAccountIdKey);  // Refresh orders list to remove filled order
                     return;
                 }
 

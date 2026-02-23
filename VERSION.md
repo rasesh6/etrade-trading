@@ -1,10 +1,10 @@
 # E*TRADE Trading System - Version History
 
-## Current Version: v1.5.4-terminal-luxe
+## Current Version: v1.5.5
 
 **Status: WORKING - Premium UI Design**
 **Commit:** (pending)
-**Date:** 2026-02-21
+**Date:** 2026-02-23
 **Deployed At:** https://web-production-9f73cd.up.railway.app
 **Environment:** PRODUCTION (real trading)
 **Timezone:** All times in **CST (Central Standard Time)** unless otherwise noted
@@ -30,7 +30,32 @@
 | **API Error Handling** | ✅ WORKING | v1.5.1 - Handles E*TRADE 500 errors gracefully |
 | **Exponential Backoff** | ✅ WORKING | v1.5.3 - Fixed implementation |
 | **Premium UI** | ✅ WORKING | v1.5.4 - Terminal Luxe design |
+| **Orders List Refresh** | ✅ WORKING | v1.5.5 - Fixed trailing stop fill not refreshing orders |
 | Redis Token Storage | ✅ WORKING | Using Redis-Y5_F service |
+
+---
+
+## v1.5.5 - Orders List Refresh Fix (2026-02-23)
+
+### Problem:
+When a trailing stop order filled and transitioned to "waiting for confirmation" state,
+the Orders list in the UI still showed the order as "OPEN" even though it was filled.
+
+### Root Cause:
+In `app.js` `startTrailingStopMonitoring()`, when the fill was detected (lines 856-862),
+the code transitioned to `waiting_confirmation` state without calling `loadOrders()` to
+refresh the orders list. This caused filled orders to remain visible in the OPEN orders list.
+
+### Solution:
+Added `loadOrders(currentAccountIdKey);` after detecting the fill, before transitioning
+to the `waiting_confirmation` state.
+
+### File Changed:
+- `static/js/app.js` - Line 862: Added orders list refresh on trailing stop fill
+
+### Note:
+Profit target orders already had this fix (line 703). Simple orders without profit/trailing
+do not have fill monitoring and were not changed.
 
 ---
 
@@ -215,7 +240,8 @@ When price hits $102:
 
 | Version | Date | Status | Key Changes |
 |---------|------|--------|-------------|
-| v1.5.4 | 2026-02-21 | ✅ CURRENT | Premium Terminal Luxe UI design |
+| v1.5.5 | 2026-02-23 | ✅ CURRENT | Fixed trailing stop fill not refreshing orders list |
+| v1.5.4 | 2026-02-21 | Working | Premium Terminal Luxe UI design |
 | v1.5.3 | 2026-02-20 | Working | Fixed exponential backoff implementation |
 | v1.5.2 | 2026-02-20 | ❌ BUG | Exponential backoff (broken - first call immediate) |
 | v1.5.1 | 2026-02-20 | Working | API error handling, cancel 5001 detection |
