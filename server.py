@@ -1529,6 +1529,9 @@ def check_trailing_stop_limit_fill(order_id):
 
         fill_price = None
         order_filled = False
+        found_order = False
+
+        logger.info(f"TSL check-fill: Looking for order {order_id} in {len(all_orders)} orders")
 
         for order in all_orders:
             # Handle nested Orders structure
@@ -1539,10 +1542,16 @@ def check_trailing_stop_limit_fill(order_id):
             if order_id_str != str(order_id):
                 continue
 
+            found_order = True
+            logger.info(f"TSL check-fill: Found order {order_id}")
+
             # Found the order - check for full fill
             for detail in order.get('OrderDetail', []):
                 ordered_qty = int(detail.get('orderedQuantity', 0))
                 filled_qty = int(detail.get('filledQuantity', 0))
+                status = detail.get('status', 'UNKNOWN')
+
+                logger.info(f"TSL check-fill: Order {order_id} - ordered={ordered_qty}, filled={filled_qty}, status={status}")
 
                 if filled_qty >= ordered_qty and ordered_qty > 0:
                     order_filled = True
@@ -1550,9 +1559,13 @@ def check_trailing_stop_limit_fill(order_id):
                     for inst in detail.get('Instrument', []):
                         fill_price = float(inst.get('averageExecutionPrice', 0))
                         if fill_price > 0:
+                            logger.info(f"TSL check-fill: Got fill_price={fill_price}")
                             break
                 break
             break
+
+        if not found_order:
+            logger.warning(f"TSL check-fill: Order {order_id} not found in orders list")
 
         if not order_filled:
             return jsonify({'filled': False})

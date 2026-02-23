@@ -746,13 +746,18 @@ function startOrderMonitoring(orderId, symbol, quantity, side, offsetType, offse
     async function checkFill() {
         if (!monitoringActive) return;
 
-        elapsed++;
-        updateOrderStatus(`Waiting for ${symbol} order to fill... (${elapsed}/${timeout}s)`);
-
-        // Check if filled
         try {
+            // Check fill FIRST
             const response = await fetch(`/api/orders/${currentAccountIdKey}/check-fill/${orderId}`);
             const data = await response.json();
+
+            console.log('Profit Target check-fill:', data);
+
+            // Handle API errors - don't count toward timeout
+            if (data.api_error) {
+                updateOrderStatus(`Checking fill... API issue, retrying...`);
+                return;
+            }
 
             if (data.success && data.filled) {
                 monitoringActive = false;
@@ -766,32 +771,39 @@ function startOrderMonitoring(orderId, symbol, quantity, side, offsetType, offse
                 loadPositions(currentAccountIdKey);
                 return;
             }
+
+            // Increment elapsed AFTER successful API call
+            elapsed++;
+
+            // Update status
+            updateOrderStatus(`Waiting for ${symbol} order to fill... (${elapsed}/${timeout}s)`);
+
+            // Check timeout AFTER fill check
+            if (elapsed >= timeout) {
+                monitoringActive = false;
+                clearInterval(fillCheckInterval);
+                updateOrderStatus(`Timeout. Cancelling order...`);
+
+                try {
+                    const cancelResponse = await fetch(`/api/orders/${currentAccountIdKey}/${orderId}/cancel`, { method: 'POST' });
+                    const cancelData = await cancelResponse.json();
+
+                    if (!cancelData.success && (cancelData.error?.includes('5001') || cancelData.error?.includes('being executed'))) {
+                        updateOrderStatus(`⚠️ Order may have filled. Please check positions.`, 'error');
+                        loadOrders(currentAccountIdKey);
+                        loadPositions(currentAccountIdKey);
+                        return;
+                    }
+
+                    updateOrderStatus(`Order cancelled (not filled within ${timeout}s)`, 'error');
+                    loadOrders(currentAccountIdKey);
+                } catch (e) {
+                    updateOrderStatus(`Failed to cancel: ${e.message}`, 'error');
+                }
+            }
         } catch (e) {
             console.error('Fill check failed:', e);
-        }
-
-        // Check timeout AFTER fill check
-        if (elapsed >= timeout) {
-            monitoringActive = false;
-            clearInterval(fillCheckInterval);
-            updateOrderStatus(`Timeout. Cancelling order...`);
-
-            try {
-                const cancelResponse = await fetch(`/api/orders/${currentAccountIdKey}/${orderId}/cancel`, { method: 'POST' });
-                const cancelData = await cancelResponse.json();
-
-                if (!cancelData.success && (cancelData.error?.includes('5001') || cancelData.error?.includes('being executed'))) {
-                    updateOrderStatus(`⚠️ Order may have filled. Please check positions.`, 'error');
-                    loadOrders(currentAccountIdKey);
-                    loadPositions(currentAccountIdKey);
-                    return;
-                }
-
-                updateOrderStatus(`Order cancelled (not filled within ${timeout}s)`, 'error');
-                loadOrders(currentAccountIdKey);
-            } catch (e) {
-                updateOrderStatus(`Failed to cancel: ${e.message}`, 'error');
-            }
+            updateOrderStatus(`Checking fill... (network error, retrying)`);
         }
     }
 
@@ -827,10 +839,19 @@ function startTrailingStopLimitMonitoring(orderId, symbol, quantity, side, tslCo
 
         try {
             if (tslState === 'waiting_fill') {
-                fillElapsed++;
-
                 const response = await fetch(`/api/trailing-stop-limit/${orderId}/check-fill`);
                 const data = await response.json();
+
+                console.log('TSL check-fill response:', data);
+
+                // Handle API errors - don't count toward timeout
+                if (data.error && !data.filled) {
+                    console.error('TSL fill check error:', data.error);
+                    updateTrailingStopLimitStatus('waiting_fill',
+                        `Checking fill... API retrying...`
+                    );
+                    return;
+                }
 
                 if (data.filled) {
                     if (data.waiting_trigger) {
@@ -839,6 +860,7 @@ function startTrailingStopLimitMonitoring(orderId, symbol, quantity, side, tslCo
                         updateTrailingStopLimitStatus('waiting_trigger',
                             `✅ Filled @ ${formatCurrency(data.fill_price)}. Waiting for trigger @ ${formatCurrency(data.trigger_price)}...`
                         );
+                        loadOrders(currentAccountIdKey);
                         return;
                     } else if (data.trailing_stop_placed) {
                         // Already placed (edge case)
@@ -859,6 +881,15 @@ function startTrailingStopLimitMonitoring(orderId, symbol, quantity, side, tslCo
                     }
                 }
 
+                // Increment elapsed only after successful API call and no fill
+                fillElapsed++;
+
+                // Update status
+                updateTrailingStopLimitStatus('waiting_fill',
+                    `Waiting for fill... (${fillElapsed}/${fillTimeout}s)`
+                );
+
+                // Check timeout AFTER fill check
                 if (fillElapsed >= fillTimeout) {
                     // Timeout - cancel order
                     monitoringActive = false;
@@ -870,9 +901,27 @@ function startTrailingStopLimitMonitoring(orderId, symbol, quantity, side, tslCo
                         const cancelData = await cancelResponse.json();
 
                         if (cancelData.error?.includes('5001') || cancelData.error?.includes('being executed')) {
-                            updateTrailingStopLimitStatus('error', `⚠️ Order may have filled. Check positions.`);
-                            loadOrders(currentAccountIdKey);
-                            loadPositions(currentAccountIdKey);
+                            // Order likely filled during cancel - recheck
+                            updateTrailingStopLimitStatus('error', `⚠️ Order may have filled. Rechecking...`);
+                            // Re-check fill status
+                            setTimeout(async () => {
+                                const recheckResponse = await fetch(`/api/trailing-stop-limit/${orderId}/check-fill`);
+                                const recheckData = await recheckResponse.json();
+                                if (recheckData.filled) {
+                                    if (recheckData.waiting_trigger) {
+                                        tslState = 'waiting_trigger';
+                                        monitoringActive = true;
+                                        updateTrailingStopLimitStatus('waiting_trigger',
+                                            `✅ Filled @ ${formatCurrency(recheckData.fill_price)}. Waiting for trigger...`
+                                        );
+                                        loadOrders(currentAccountIdKey);
+                                        return;
+                                    }
+                                }
+                                updateTrailingStopLimitStatus('error', `⚠️ Order status unclear. Check positions.`);
+                                loadOrders(currentAccountIdKey);
+                                loadPositions(currentAccountIdKey);
+                            }, 1000);
                             return;
                         }
 
@@ -884,15 +933,20 @@ function startTrailingStopLimitMonitoring(orderId, symbol, quantity, side, tslCo
                     return;
                 }
 
-                updateTrailingStopLimitStatus('waiting_fill',
-                    `Waiting for fill... (${fillElapsed}/${fillTimeout}s)`
-                );
-
             } else if (tslState === 'waiting_trigger') {
-                triggerElapsed++;
-
                 const response = await fetch(`/api/trailing-stop-limit/${orderId}/check-trigger`);
                 const data = await response.json();
+
+                console.log('TSL check-trigger response:', data);
+
+                // Handle API errors - don't count toward timeout
+                if (data.error && !data.triggered) {
+                    console.error('TSL trigger check error:', data.error);
+                    updateTrailingStopLimitStatus('waiting_trigger',
+                        `Checking trigger... API retrying...`
+                    );
+                    return;
+                }
 
                 if (data.triggered && data.trailing_stop_placed) {
                     monitoringActive = false;
@@ -911,6 +965,10 @@ function startTrailingStopLimitMonitoring(orderId, symbol, quantity, side, tslCo
                     return;
                 }
 
+                // Increment elapsed only after successful API call
+                triggerElapsed++;
+
+                // Check timeout
                 if (triggerElapsed >= triggerTimeout) {
                     monitoringActive = false;
                     clearInterval(fillCheckInterval);
@@ -921,15 +979,26 @@ function startTrailingStopLimitMonitoring(orderId, symbol, quantity, side, tslCo
                     return;
                 }
 
+                // Update status with price info
                 if (data.current_price) {
                     updateTrailingStopLimitStatus('waiting_trigger',
                         `Waiting for trigger... ${formatCurrency(data.current_price)} → ${formatCurrency(data.trigger_price)} (${triggerElapsed}/${triggerTimeout}s)`
+                    );
+                } else {
+                    updateTrailingStopLimitStatus('waiting_trigger',
+                        `Waiting for trigger... (${triggerElapsed}/${triggerTimeout}s)`
                     );
                 }
             }
 
         } catch (e) {
             console.error('Trailing stop limit monitoring error:', e);
+            // Network error - don't count toward timeout
+            if (tslState === 'waiting_fill') {
+                updateTrailingStopLimitStatus('waiting_fill', `Checking fill... (network error, retrying)`);
+            } else {
+                updateTrailingStopLimitStatus('waiting_trigger', `Checking trigger... (network error, retrying)`);
+            }
         }
     }
 
@@ -1063,11 +1132,16 @@ function startTrailingStopMonitoring(orderId, symbol, quantity, side, trailingSt
 
         try {
             if (trailingStopState === 'waiting_fill') {
-                elapsedSeconds++;
-                updateTrailingStopStatus('waiting_fill', `Waiting for ${symbol} order to fill... (${elapsedSeconds}/${fillTimeout}s)`);
-
                 const fillResponse = await fetch(`/api/trailing-stops/${orderId}/check-fill`);
                 const fillData = await fillResponse.json();
+
+                console.log('Confirmation Stop check-fill:', fillData);
+
+                // Handle API errors - don't count toward timeout
+                if (fillData.api_error) {
+                    updateTrailingStopStatus('waiting_fill', `Checking fill... API retrying...`);
+                    return;
+                }
 
                 if (fillData.filled) {
                     elapsedSeconds = 0;
@@ -1075,9 +1149,13 @@ function startTrailingStopMonitoring(orderId, symbol, quantity, side, trailingSt
                     updateTrailingStopStatus('waiting_confirmation',
                         `✅ Filled @ ${formatCurrency(fillData.fill_price)}. Waiting for trigger...`
                     );
-                    loadOrders(currentAccountIdKey);  // Refresh orders list to remove filled order
+                    loadOrders(currentAccountIdKey);
                     return;
                 }
+
+                // Increment elapsed only after successful API call and no fill
+                elapsedSeconds++;
+                updateTrailingStopStatus('waiting_fill', `Waiting for ${symbol} order to fill... (${elapsedSeconds}/${fillTimeout}s)`);
 
                 // Check fill timeout
                 if (elapsedSeconds >= fillTimeout) {
@@ -1156,18 +1234,28 @@ function startTrailingStopMonitoring(orderId, symbol, quantity, side, trailingSt
                 }
             }
             else if (trailingStopState === 'waiting_confirmation') {
-                confirmElapsed++;
                 const confirmResponse = await fetch(`/api/trailing-stops/${orderId}/check-confirmation`);
                 const confirmData = await confirmResponse.json();
+
+                console.log('Confirmation Stop check-confirmation:', confirmData);
+
+                // Handle API errors - don't count toward timeout
+                if (confirmData.api_error) {
+                    updateTrailingStopStatus('waiting_confirmation', `Checking trigger... API retrying...`);
+                    return;
+                }
 
                 if (confirmData.confirmed && confirmData.stop_placed) {
                     trailingStopState = 'stop_active';
                     updateTrailingStopStatus('stop_active',
                         `✅ STOP LIMIT placed @ ${formatCurrency(confirmData.stop_price)}`
                     );
-                    loadOrders(currentAccountIdKey);  // Refresh orders list to show the new stop order
+                    loadOrders(currentAccountIdKey);
                     return;
                 }
+
+                // Increment elapsed only after successful API call
+                confirmElapsed++;
 
                 if (confirmData.timeout || confirmElapsed >= confirmTimeout) {
                     updateTrailingStopStatus('timeout',
@@ -1197,11 +1285,17 @@ function startTrailingStopMonitoring(orderId, symbol, quantity, side, trailingSt
                     return;
                 }
 
-                updateTrailingStopStatus('stop_active', `Trailing stop active - monitoring...`);
+                updateTrailingStopStatus('stop_active', `Confirmation stop active - monitoring...`);
             }
 
         } catch (e) {
-            console.error('Trailing stop monitoring error:', e);
+            console.error('Confirmation stop monitoring error:', e);
+            // Network error - don't count toward timeout
+            if (trailingStopState === 'waiting_fill') {
+                updateTrailingStopStatus('waiting_fill', `Checking fill... (network error, retrying)`);
+            } else if (trailingStopState === 'waiting_confirmation') {
+                updateTrailingStopStatus('waiting_confirmation', `Checking trigger... (network error, retrying)`);
+            }
         }
     }
 

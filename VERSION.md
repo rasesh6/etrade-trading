@@ -1,6 +1,6 @@
 # E*TRADE Trading System - Version History
 
-## Current Version: v1.5.9
+## Current Version: v1.6.0
 
 **Status: WORKING - Premium UI Design**
 **Commit:** (pending)
@@ -29,10 +29,38 @@
 | **Confirmation Stop Limit** | ✅ WORKING | v1.5.0 - Confirmation-based with guaranteed profit |
 | **Trailing Stop Limit ($)** | ✅ WORKING | v1.5.9 - TRAILING_STOP_CNST with trigger + limit |
 | **Exit Strategy Dropdown** | ✅ WORKING | v1.5.7 - None, Profit Target, Confirmation Stop Limit, Trailing Stop Limit |
+| **Robust Fill Detection** | ✅ WORKING | v1.6.0 - API errors don't count toward timeout |
 | **API Error Handling** | ✅ WORKING | v1.5.1 - Handles E*TRADE 500 errors gracefully |
-| **Exponential Backoff** | ✅ WORKING | v1.5.3 - Fixed implementation |
 | **Premium UI** | ✅ WORKING | v1.5.4 - Terminal Luxe design |
 | Redis Token Storage | ✅ WORKING | Using Redis-Y5_F service |
+
+---
+
+## v1.6.0 - Robust Fill Detection (2026-02-23)
+
+### Fixes:
+1. **API errors no longer count toward timeout** - If the E*TRADE API returns an error or times out, the monitoring keeps retrying without incrementing the timeout counter
+
+2. **Fill check happens BEFORE timeout check** - Previously, the elapsed counter was incremented before the API call, causing race conditions
+
+3. **Added debug logging** - Console logs for all fill/trigger checks to help diagnose issues
+
+4. **Improved error 5001 handling** - When cancel returns "being executed", re-check fill status instead of giving up
+
+### Monitoring Logic (All Order Types):
+```
+1. Make API call to check fill/trigger
+2. If API error → retry without counting toward timeout
+3. If filled/triggered → transition to next state
+4. Increment elapsed counter
+5. Update status display
+6. Check if timeout reached
+7. If timeout → attempt cancel (with 5001 recheck)
+```
+
+### Files Changed:
+- `static/js/app.js` - All three monitoring functions refactored
+- `server.py` - Added debug logging for fill detection
 
 ---
 
@@ -342,7 +370,8 @@ When price hits $102:
 
 | Version | Date | Status | Key Changes |
 |---------|------|--------|-------------|
-| v1.5.9 | 2026-02-23 | ✅ CURRENT | Trailing Stop Limit with trigger offset |
+| v1.6.0 | 2026-02-23 | ✅ CURRENT | Robust fill detection - API errors don't count toward timeout |
+| v1.5.9 | 2026-02-23 | Working | Trailing Stop Limit with trigger offset |
 | v1.5.8 | 2026-02-23 | Working | Trailing Stop Limit ($), renamed to Confirmation Stop Limit |
 | v1.5.7 | 2026-02-23 | Working | Exit strategy dropdown |
 | v1.5.6 | 2026-02-23 | Working | Renamed to Confirmation Stop, fixed orders refresh |
