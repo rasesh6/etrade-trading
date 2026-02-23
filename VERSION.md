@@ -1,6 +1,6 @@
 # E*TRADE Trading System - Version History
 
-## Current Version: v1.6.0
+## Current Version: v1.6.1
 
 **Status: WORKING - Premium UI Design**
 **Commit:** (pending)
@@ -33,6 +33,22 @@
 | **API Error Handling** | ✅ WORKING | v1.5.1 - Handles E*TRADE 500 errors gracefully |
 | **Premium UI** | ✅ WORKING | v1.5.4 - Terminal Luxe design |
 | Redis Token Storage | ✅ WORKING | Using Redis-Y5_F service |
+
+---
+
+## v1.6.1 - TSL Fill Detection Fix (2026-02-23)
+
+### Bug Fix:
+Trailing Stop Limit fill detection was looking at the wrong level in E*TRADE's response structure.
+
+- **Wrong:** Looking at `OrderDetail.filledQuantity` (doesn't exist)
+- **Correct:** Looking at `OrderDetail.Instrument[].filledQuantity` (where E*TRADE puts it)
+
+This matches the working Confirmation Stop Limit code structure.
+
+### Also Added:
+- API error handling for E*TRADE 500 errors
+- Better logging for debugging fill detection
 
 ---
 
@@ -370,7 +386,8 @@ When price hits $102:
 
 | Version | Date | Status | Key Changes |
 |---------|------|--------|-------------|
-| v1.6.0 | 2026-02-23 | ✅ CURRENT | Robust fill detection - API errors don't count toward timeout |
+| v1.6.1 | 2026-02-23 | ✅ CURRENT | Fixed TSL fill detection - use Instrument level |
+| v1.6.0 | 2026-02-23 | Working | Robust fill detection - API errors don't count toward timeout |
 | v1.5.9 | 2026-02-23 | Working | Trailing Stop Limit with trigger offset |
 | v1.5.8 | 2026-02-23 | Working | Trailing Stop Limit ($), renamed to Confirmation Stop Limit |
 | v1.5.7 | 2026-02-23 | Working | Exit strategy dropdown |
