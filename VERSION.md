@@ -35,37 +35,34 @@
 
 ---
 
-## v1.5.5 - Orders List Refresh Fix (2026-02-23)
+## v1.5.5 - Fill Detection Fix (2026-02-23)
 
 ### Problem:
-When a trailing stop order filled and transitioned to "waiting for confirmation" state,
-the Orders list in the UI still showed the order as "OPEN" even though it was filled.
+Orders were filling quickly (within 2 seconds) but the system wasn't detecting fills
+for 30+ seconds, causing trailing stops to never be placed.
 
-Also, when fill timeout occurred and cancel returned error 5001 ("being executed"), the
-system just showed "Order may have filled" without continuing with trailing stop placement.
-
-Finally, even with extended polling (30s), fills weren't detected because E*TRADE keeps
-filled orders in OPEN status for a while before moving to EXECUTED.
-
-### Root Cause:
-1. In `app.js` `startTrailingStopMonitoring()`, when fill was detected, the code didn't
-   call `loadOrders()` to refresh the orders list.
-2. Error 5001 handling only did a single re-check, but E*TRADE API is slow to update.
-3. Server-side check-fill only looked at EXECUTED orders, but E*TRADE keeps filled orders
-   in OPEN status with filledQuantity > 0 before moving to EXECUTED.
+### Root Cause Analysis:
+1. Orders list refresh wasn't being called after fill detection
+2. Error 5001 handling gave up too quickly
+3. **Main issue**: Check-fill was only looking at EXECUTED status, but E*TRADE may
+   not immediately update order status. Also, checking OPEN orders with filledQuantity > 0
+   had a partial fill problem.
 
 ### Solution:
-1. Added `loadOrders(currentAccountIdKey);` after detecting the fill.
-2. When error 5001 occurs, keep polling for fill confirmation for up to 30 more seconds.
-3. Server-side check-fill now checks BOTH EXECUTED and OPEN orders, looking for
-   filledQuantity > 0 to detect fills even when order status is still OPEN.
+1. Added `loadOrders()` after fill detection
+2. Extended polling for 30 seconds after error 5001
+3. **Key fix**: Fetch orders WITHOUT status filter (gets all recent orders), then:
+   - Find the order by ID
+   - Check if `filledQuantity >= orderedQuantity` (FULL fill only, not partial)
+   - This works regardless of whether E*TRADE has updated the status field yet
 
 ### Files Changed:
-- `static/js/app.js` - Lines 862, 876-945: Persistent fill checking after error 5001
-- `server.py` - check_trailing_stop_fill() and check_single_order_fill(): Check both EXECUTED and OPEN orders
+- `static/js/app.js` - Persistent fill checking after error 5001
+- `server.py` - check_trailing_stop_fill() and check_single_order_fill(): Fetch all orders, check for full fills
+- `etrade_client.py` - get_orders(): Handle status=None to fetch all orders
 
-### Note:
-Simple orders without profit/trailing do not have fill monitoring and were not changed.
+### Partial Fill Handling:
+Only triggers trailing stop/profit order when `filledQuantity >= orderedQuantity` (full fill).
 
 ---
 

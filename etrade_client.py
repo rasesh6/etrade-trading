@@ -681,12 +681,14 @@ class ETradeClient:
 
         Args:
             account_id_key: Account ID key
-            status: Order status (OPEN, EXECUTED, CANCELLED, etc.)
+            status: Order status (OPEN, EXECUTED, CANCELLED, etc.) or None for all orders
 
         Returns:
             list of orders
         """
-        params = {'status': status}
+        params = {}
+        if status:
+            params['status'] = status
         response = self._make_request(
             'GET',
             f'/v1/accounts/{account_id_key}/orders.json',

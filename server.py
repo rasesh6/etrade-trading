@@ -769,50 +769,60 @@ def check_single_order_fill(account_id_key, order_id):
             })
 
         # Get order details to check status and fill price
-        # Check BOTH EXECUTED and OPEN orders - E*TRADE may keep filled orders in OPEN status
+        # Try without status filter first to catch orders regardless of their current status
         order_filled = False
         fill_price = None
         orders_checked = []
+        all_orders = []
 
-        for status in ['EXECUTED', 'OPEN']:
-            try:
-                orders = client.get_orders(account_id_key, status=status)
-                orders_checked.append(f"{status}:{len(orders)}")
-                logger.info(f"Found {len(orders)} {status} orders")
-            except Exception as api_error:
-                error_msg = str(api_error)
-                if '500' in error_msg or 'not currently available' in error_msg:
-                    logger.warning(f"E*TRADE API temporarily unavailable for {status} orders: {error_msg}")
-                    orders = []
-                else:
-                    raise
+        try:
+            all_orders = client.get_orders(account_id_key, status=None)
+            orders_checked.append(f"ALL:{len(all_orders)}")
+            logger.info(f"Fetched {len(all_orders)} orders without status filter")
+        except Exception as api_error:
+            error_msg = str(api_error)
+            if '500' in error_msg or 'not currently available' in error_msg:
+                logger.warning(f"E*TRADE API temporarily unavailable: {error_msg}")
+                return jsonify({
+                    'success': True,
+                    'filled': False,
+                    'api_error': True,
+                    'api_error_message': 'E*TRADE API temporarily unavailable, retrying...'
+                })
+            raise
 
-            for order in orders:
-                logger.debug(f"Checking order {order.get('orderId')} against {order_id}")
-                if str(order.get('orderId')) == str(order_id):
-                    # Check if filled - either EXECUTED status or filledQuantity > 0
-                    if 'OrderDetail' in order:
-                        for detail in order['OrderDetail']:
-                            if 'Instrument' in detail:
-                                for inst in detail['Instrument']:
-                                    filled_qty = inst.get('filledQuantity', 0)
-                                    if filled_qty and int(filled_qty) > 0:
-                                        order_filled = True
-                                        logger.info(f"Order {order_id} found in {status} orders with filledQuantity={filled_qty}!")
+        for order in all_orders:
+            logger.debug(f"Checking order {order.get('orderId')} against {order_id}")
+            if str(order.get('orderId')) == str(order_id):
+                logger.info(f"Found order {order_id} in response")
 
-                                        # Get fill price from Instrument.averageExecutionPrice
-                                        if inst.get('averageExecutionPrice'):
-                                            fill_price = float(inst.get('averageExecutionPrice'))
-                                            logger.info(f"Fill price from Instrument.averageExecutionPrice: {fill_price}")
-                                        elif inst.get('executedPrice'):
-                                            fill_price = float(inst.get('executedPrice'))
-                                            logger.info(f"Fill price from Instrument.executedPrice: {fill_price}")
-                                        break
-                                if order_filled:
+                if 'OrderDetail' in order:
+                    for detail in order['OrderDetail']:
+                        order_status = detail.get('status', '')
+                        logger.info(f"Order {order_id} status: {order_status}")
+
+                        if 'Instrument' in detail:
+                            for inst in detail['Instrument']:
+                                filled_qty = int(inst.get('filledQuantity', 0))
+                                ordered_qty = int(inst.get('orderedQuantity', 0))
+
+                                logger.info(f"Order {order_id}: filled_qty={filled_qty}, ordered_qty={ordered_qty}")
+
+                                # Only consider filled if FULLY filled (not partial)
+                                if filled_qty > 0 and filled_qty >= ordered_qty:
+                                    order_filled = True
+                                    logger.info(f"Order {order_id} FULLY filled!")
+
+                                    # Get fill price
+                                    if inst.get('averageExecutionPrice'):
+                                        fill_price = float(inst.get('averageExecutionPrice'))
+                                        logger.info(f"Fill price: {fill_price}")
+                                    elif inst.get('executedPrice'):
+                                        fill_price = float(inst.get('executedPrice'))
+                                        logger.info(f"Fill price: {fill_price}")
                                     break
-                    if order_filled:
-                        break
-            if order_filled:
+                            if order_filled:
+                                break
                 break
 
         if not order_filled:
@@ -1119,39 +1129,85 @@ def check_trailing_stop_fill(opening_order_id):
 
         client = _get_authenticated_client()
 
-        # Check if order is filled - look in BOTH EXECUTED and OPEN orders
-        # E*TRADE may keep filled orders in OPEN status for a while
+        # Try fetching orders without status filter first, then fall back to EXECUTED
+        # This handles cases where E*TRADE hasn't updated the status yet
         fill_price = None
         orders_checked = []
+        all_orders = []
 
-        for status in ['EXECUTED', 'OPEN']:
+        # First try without status filter (gets all recent orders)
+        try:
+            all_orders = client.get_orders(ts.account_id_key, status=None)
+            orders_checked.append(f"ALL:{len(all_orders)}")
+            logger.info(f"Fetched {len(all_orders)} orders without status filter")
+        except Exception as api_error:
+            error_msg = str(api_error)
+            logger.warning(f"Failed to fetch orders without filter: {error_msg}")
+            # Fall back to EXECUTED only
             try:
-                orders = client.get_orders(ts.account_id_key, status=status)
-                orders_checked.append(f"{status}:{len(orders)}")
-            except Exception as api_error:
-                error_msg = str(api_error)
-                if '500' in error_msg or 'not currently available' in error_msg:
-                    logger.warning(f"E*TRADE API temporarily unavailable for {status} orders: {error_msg}")
-                    orders = []
-                else:
-                    raise
+                all_orders = client.get_orders(ts.account_id_key, status='EXECUTED')
+                orders_checked.append(f"EXECUTED:{len(all_orders)}")
+            except Exception as e2:
+                if '500' in str(e2) or 'not currently available' in str(e2):
+                    return jsonify({
+                        'success': True,
+                        'filled': False,
+                        'api_error': True,
+                        'api_error_message': 'E*TRADE API temporarily unavailable',
+                        'state': ts.state
+                    })
+                raise
 
-            for order in orders:
-                if str(order.get('orderId')) == str(opening_order_id):
-                    # Get fill price - check both EXECUTED status and filledQuantity
-                    if 'OrderDetail' in order:
-                        for detail in order['OrderDetail']:
-                            # Check if order has fills (filledQuantity > 0)
-                            if 'Instrument' in detail:
-                                for inst in detail['Instrument']:
-                                    filled_qty = inst.get('filledQuantity', 0)
-                                    if filled_qty and int(filled_qty) > 0:
-                                        # Has fills - get execution price
-                                        if inst.get('averageExecutionPrice'):
-                                            fill_price = float(inst.get('averageExecutionPrice'))
-                                            logger.info(f"Found fill in {status} orders: order {opening_order_id}, "
-                                                       f"filled_qty={filled_qty}, fill_price={fill_price}")
-                                            break
+        for order in all_orders:
+            order_id = order.get('orderId')
+            logger.debug(f"Checking order {order_id} against {opening_order_id}")
+
+            if str(order_id) == str(opening_order_id):
+                logger.info(f"Found order {opening_order_id} in response")
+
+                if 'OrderDetail' in order:
+                    for detail in order['OrderDetail']:
+                        order_status = detail.get('status', '')
+                        logger.info(f"Order {opening_order_id} status: {order_status}")
+
+                        if 'Instrument' in detail:
+                            for inst in detail['Instrument']:
+                                filled_qty = int(inst.get('filledQuantity', 0))
+                                ordered_qty = int(inst.get('orderedQuantity', 0))
+
+                                logger.info(f"Order {opening_order_id}: filled_qty={filled_qty}, ordered_qty={ordered_qty}")
+
+                                # Only consider filled if FULLY filled (not partial)
+                                if filled_qty > 0 and filled_qty >= ordered_qty:
+                                    if inst.get('averageExecutionPrice'):
+                                        fill_price = float(inst.get('averageExecutionPrice'))
+                                        logger.info(f"Order {opening_order_id} FULLY filled at {fill_price}")
+                                        break
+                            if fill_price:
+                                break
+                break
+
+        if fill_price:
+            trailing_stop_manager.mark_filled(opening_order_id, fill_price)
+            logger.info(f"Trailing stop opening order {opening_order_id} filled at {fill_price}")
+
+            return jsonify({
+                'success': True,
+                'filled': True,
+                'fill_price': fill_price,
+                'trigger_price': ts.trigger_price,
+                'state': ts.state,
+                'trailing_stop': ts.to_dict(),
+                'orders_checked': orders_checked
+            })
+
+        return jsonify({
+            'success': True,
+            'filled': False,
+            'state': ts.state,
+            'trailing_stop': ts.to_dict(),
+            'orders_checked': orders_checked
+        })
                                 if fill_price:
                                     break
                     if fill_price:

@@ -122,15 +122,13 @@ Changes pushed to `main` branch auto-deploy to Railway:
 ## Recent Changes
 
 ### v1.5.5 (2026-02-23)
-**Fix:** Trailing stop orders not refreshing orders list after fill
+**Fix:** Fill detection not working - orders filled in 2s but detected after 30s
 
-- **Problem 1:** When trailing stop detected fill, the orders list still showed the order as OPEN.
-- **Problem 2:** When fill timeout occurred and cancel returned error 5001 ("being executed"), the system gave up after one re-check.
-- **Problem 3:** Even with 30s extended polling, fills weren't detected because E*TRADE keeps filled orders in OPEN status before moving to EXECUTED.
-- **Fix 1:** Added `loadOrders()` after fill detection in app.js.
-- **Fix 2:** When error 5001 occurs, keep polling for fill for up to 30 more seconds.
-- **Fix 3:** Server-side check-fill now checks BOTH EXECUTED and OPEN orders, looking for filledQuantity > 0.
-- **Files:** `static/js/app.js`, `server.py`
+- **Problem:** Orders filled quickly but trailing stops weren't placed because fill wasn't detected.
+- **Root Cause:** Check-fill was only looking at EXECUTED status orders.
+- **Fix:** Fetch ALL orders (no status filter), find by order ID, check if `filledQuantity >= orderedQuantity` for full fills only.
+- **Partial Fills:** Only triggers exit orders on FULL fill, not partial.
+- **Files:** `static/js/app.js`, `server.py`, `etrade_client.py`
 
 ## Common Tasks
 
