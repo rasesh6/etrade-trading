@@ -1,6 +1,6 @@
 # E*TRADE Trading System - Version History
 
-## Current Version: v1.6.1
+## Current Version: v1.6.2
 
 **Status: WORKING - Premium UI Design**
 **Commit:** (pending)
@@ -33,6 +33,37 @@
 | **API Error Handling** | ✅ WORKING | v1.5.1 - Handles E*TRADE 500 errors gracefully |
 | **Premium UI** | ✅ WORKING | v1.5.4 - Terminal Luxe design |
 | Redis Token Storage | ✅ WORKING | Using Redis-Y5_F service |
+
+---
+
+## E*TRADE Fill Detection Structure
+
+**IMPORTANT:** E*TRADE API returns fill quantities at the **Instrument** level, not OrderDetail level:
+
+```
+Order
+└── OrderDetail[]
+    └── Instrument[]           ← filledQuantity and orderedQuantity are HERE
+        ├── filledQuantity
+        ├── orderedQuantity
+        └── averageExecutionPrice
+```
+
+All fill detection code must iterate through `OrderDetail[].Instrument[]` to check fill status.
+
+---
+
+## v1.6.2 - UI Readability & Fill Detection Consistency (2026-02-23)
+
+### UI Improvements:
+- Increased label text brightness (tertiary → secondary color)
+- Increased label font weight (500 → 600)
+- Increased label font size (0.625rem → 0.6875rem)
+- Strategy descriptions now more readable
+
+### Fill Detection:
+- Verified all fill detection code uses correct Instrument-level structure
+- Added documentation comment about E*TRADE structure
 
 ---
 
@@ -386,7 +417,8 @@ When price hits $102:
 
 | Version | Date | Status | Key Changes |
 |---------|------|--------|-------------|
-| v1.6.1 | 2026-02-23 | ✅ CURRENT | Fixed TSL fill detection - use Instrument level |
+| v1.6.2 | 2026-02-23 | ✅ CURRENT | UI readability fix, fill detection consistency check |
+| v1.6.1 | 2026-02-23 | Working | Fixed TSL fill detection - use Instrument level |
 | v1.6.0 | 2026-02-23 | Working | Robust fill detection - API errors don't count toward timeout |
 | v1.5.9 | 2026-02-23 | Working | Trailing Stop Limit with trigger offset |
 | v1.5.8 | 2026-02-23 | Working | Trailing Stop Limit ($), renamed to Confirmation Stop Limit |

@@ -17,8 +17,8 @@
     --bear: #ef4444;
     --bear-dim: rgba(239, 68, 68, 0.15);
     --text-primary: #fafafa;
-    --text-secondary: #a1a1aa;
-    --text-tertiary: #52525b;
+    --text-secondary: #b8b8c0;
+    --text-tertiary: #71717a;
     --border-subtle: rgba(255, 255, 255, 0.06);
     --border-default: rgba(255, 255, 255, 0.1);
     --border-accent: rgba(201, 162, 39, 0.3);
@@ -190,11 +190,11 @@ body {
 
 .form-group label {
     display: block;
-    font-size: 0.625rem;
-    font-weight: 500;
+    font-size: 0.6875rem;
+    font-weight: 600;
     letter-spacing: 0.05em;
     text-transform: uppercase;
-    color: var(--text-tertiary);
+    color: var(--text-secondary);
     margin-bottom: 2px;
 }
 
@@ -481,8 +481,8 @@ select {
 
 /* Exit Strategy Description */
 .strategy-desc {
-    font-size: 0.625rem;
-    color: var(--text-tertiary);
+    font-size: 0.6875rem;
+    color: var(--text-secondary);
     margin-top: 6px;
     padding: 4px 6px;
     background: var(--bg-base);
