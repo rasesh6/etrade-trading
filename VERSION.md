@@ -44,22 +44,28 @@ the Orders list in the UI still showed the order as "OPEN" even though it was fi
 Also, when fill timeout occurred and cancel returned error 5001 ("being executed"), the
 system just showed "Order may have filled" without continuing with trailing stop placement.
 
+Finally, even with extended polling (30s), fills weren't detected because E*TRADE keeps
+filled orders in OPEN status for a while before moving to EXECUTED.
+
 ### Root Cause:
 1. In `app.js` `startTrailingStopMonitoring()`, when fill was detected, the code didn't
    call `loadOrders()` to refresh the orders list.
 2. Error 5001 handling only did a single re-check, but E*TRADE API is slow to update.
+3. Server-side check-fill only looked at EXECUTED orders, but E*TRADE keeps filled orders
+   in OPEN status with filledQuantity > 0 before moving to EXECUTED.
 
 ### Solution:
 1. Added `loadOrders(currentAccountIdKey);` after detecting the fill.
-2. When error 5001 occurs, keep polling for fill confirmation for up to 30 more seconds
-   instead of giving up after a single check. Show progress like "Order filling... confirming (5/30s)".
+2. When error 5001 occurs, keep polling for fill confirmation for up to 30 more seconds.
+3. Server-side check-fill now checks BOTH EXECUTED and OPEN orders, looking for
+   filledQuantity > 0 to detect fills even when order status is still OPEN.
 
-### File Changed:
+### Files Changed:
 - `static/js/app.js` - Lines 862, 876-945: Persistent fill checking after error 5001
+- `server.py` - check_trailing_stop_fill() and check_single_order_fill(): Check both EXECUTED and OPEN orders
 
 ### Note:
-Profit target orders already had this fix (line 703). Simple orders without profit/trailing
-do not have fill monitoring and were not changed.
+Simple orders without profit/trailing do not have fill monitoring and were not changed.
 
 ---
 

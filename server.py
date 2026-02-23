@@ -769,49 +769,50 @@ def check_single_order_fill(account_id_key, order_id):
             })
 
         # Get order details to check status and fill price
-        try:
-            orders = client.get_orders(account_id_key, status='EXECUTED')
-            logger.info(f"Found {len(orders)} EXECUTED orders")
-        except Exception as api_error:
-            # E*TRADE API might return 500 errors temporarily
-            error_msg = str(api_error)
-            if '500' in error_msg or 'not currently available' in error_msg:
-                logger.warning(f"E*TRADE API temporarily unavailable for fill check: {error_msg}")
-                return jsonify({
-                    'success': True,
-                    'filled': False,
-                    'api_error': True,
-                    'api_error_message': 'E*TRADE API temporarily unavailable, retrying...'
-                })
-            raise
-
+        # Check BOTH EXECUTED and OPEN orders - E*TRADE may keep filled orders in OPEN status
         order_filled = False
         fill_price = None
+        orders_checked = []
 
-        for order in orders:
-            logger.debug(f"Checking order {order.get('orderId')} against {order_id}")
-            if str(order.get('orderId')) == str(order_id):
-                order_filled = True
-                logger.info(f"Order {order_id} found in EXECUTED orders!")
+        for status in ['EXECUTED', 'OPEN']:
+            try:
+                orders = client.get_orders(account_id_key, status=status)
+                orders_checked.append(f"{status}:{len(orders)}")
+                logger.info(f"Found {len(orders)} {status} orders")
+            except Exception as api_error:
+                error_msg = str(api_error)
+                if '500' in error_msg or 'not currently available' in error_msg:
+                    logger.warning(f"E*TRADE API temporarily unavailable for {status} orders: {error_msg}")
+                    orders = []
+                else:
+                    raise
 
-                # Get fill price from Instrument.averageExecutionPrice (per E*TRADE API docs)
-                # https://apisb.etrade.com/docs/api/order/api-order-v1.html#/definition/getOrders
-                if 'OrderDetail' in order:
-                    for detail in order['OrderDetail']:
-                        if 'Instrument' in detail:
-                            for inst in detail['Instrument']:
-                                # averageExecutionPrice is the correct field per API docs
-                                if inst.get('averageExecutionPrice'):
-                                    fill_price = float(inst.get('averageExecutionPrice'))
-                                    logger.info(f"Fill price from Instrument.averageExecutionPrice: {fill_price}")
+            for order in orders:
+                logger.debug(f"Checking order {order.get('orderId')} against {order_id}")
+                if str(order.get('orderId')) == str(order_id):
+                    # Check if filled - either EXECUTED status or filledQuantity > 0
+                    if 'OrderDetail' in order:
+                        for detail in order['OrderDetail']:
+                            if 'Instrument' in detail:
+                                for inst in detail['Instrument']:
+                                    filled_qty = inst.get('filledQuantity', 0)
+                                    if filled_qty and int(filled_qty) > 0:
+                                        order_filled = True
+                                        logger.info(f"Order {order_id} found in {status} orders with filledQuantity={filled_qty}!")
+
+                                        # Get fill price from Instrument.averageExecutionPrice
+                                        if inst.get('averageExecutionPrice'):
+                                            fill_price = float(inst.get('averageExecutionPrice'))
+                                            logger.info(f"Fill price from Instrument.averageExecutionPrice: {fill_price}")
+                                        elif inst.get('executedPrice'):
+                                            fill_price = float(inst.get('executedPrice'))
+                                            logger.info(f"Fill price from Instrument.executedPrice: {fill_price}")
+                                        break
+                                if order_filled:
                                     break
-                                # Fallback to other field names just in case
-                                elif inst.get('executedPrice'):
-                                    fill_price = float(inst.get('executedPrice'))
-                                    logger.info(f"Fill price from Instrument.executedPrice: {fill_price}")
-                                    break
-                            if fill_price is not None:
-                                break
+                    if order_filled:
+                        break
+            if order_filled:
                 break
 
         if not order_filled:
@@ -1118,39 +1119,44 @@ def check_trailing_stop_fill(opening_order_id):
 
         client = _get_authenticated_client()
 
-        # Check if order is filled
-        try:
-            orders = client.get_orders(ts.account_id_key, status='EXECUTED')
-        except Exception as api_error:
-            # E*TRADE API might return 500 errors temporarily
-            # Don't count this as "not filled" - return api_error flag
-            error_msg = str(api_error)
-            if '500' in error_msg or 'not currently available' in error_msg:
-                logger.warning(f"E*TRADE API temporarily unavailable for fill check: {error_msg}")
-                return jsonify({
-                    'success': True,
-                    'filled': False,
-                    'api_error': True,
-                    'api_error_message': 'E*TRADE API temporarily unavailable, retrying...',
-                    'state': ts.state,
-                    'trailing_stop': ts.to_dict()
-                })
-            # For other errors, still raise them
-            raise
-
+        # Check if order is filled - look in BOTH EXECUTED and OPEN orders
+        # E*TRADE may keep filled orders in OPEN status for a while
         fill_price = None
-        for order in orders:
-            if str(order.get('orderId')) == str(opening_order_id):
-                # Get fill price
-                if 'OrderDetail' in order:
-                    for detail in order['OrderDetail']:
-                        if 'Instrument' in detail:
-                            for inst in detail['Instrument']:
-                                if inst.get('averageExecutionPrice'):
-                                    fill_price = float(inst.get('averageExecutionPrice'))
+        orders_checked = []
+
+        for status in ['EXECUTED', 'OPEN']:
+            try:
+                orders = client.get_orders(ts.account_id_key, status=status)
+                orders_checked.append(f"{status}:{len(orders)}")
+            except Exception as api_error:
+                error_msg = str(api_error)
+                if '500' in error_msg or 'not currently available' in error_msg:
+                    logger.warning(f"E*TRADE API temporarily unavailable for {status} orders: {error_msg}")
+                    orders = []
+                else:
+                    raise
+
+            for order in orders:
+                if str(order.get('orderId')) == str(opening_order_id):
+                    # Get fill price - check both EXECUTED status and filledQuantity
+                    if 'OrderDetail' in order:
+                        for detail in order['OrderDetail']:
+                            # Check if order has fills (filledQuantity > 0)
+                            if 'Instrument' in detail:
+                                for inst in detail['Instrument']:
+                                    filled_qty = inst.get('filledQuantity', 0)
+                                    if filled_qty and int(filled_qty) > 0:
+                                        # Has fills - get execution price
+                                        if inst.get('averageExecutionPrice'):
+                                            fill_price = float(inst.get('averageExecutionPrice'))
+                                            logger.info(f"Found fill in {status} orders: order {opening_order_id}, "
+                                                       f"filled_qty={filled_qty}, fill_price={fill_price}")
+                                            break
+                                if fill_price:
                                     break
-                            if fill_price:
-                                break
+                    if fill_price:
+                        break
+            if fill_price:
                 break
 
         if fill_price:
@@ -1163,14 +1169,16 @@ def check_trailing_stop_fill(opening_order_id):
                 'fill_price': fill_price,
                 'trigger_price': ts.trigger_price,
                 'state': ts.state,
-                'trailing_stop': ts.to_dict()
+                'trailing_stop': ts.to_dict(),
+                'orders_checked': orders_checked
             })
 
         return jsonify({
             'success': True,
             'filled': False,
             'state': ts.state,
-            'trailing_stop': ts.to_dict()
+            'trailing_stop': ts.to_dict(),
+            'orders_checked': orders_checked
         })
 
     except Exception as e:

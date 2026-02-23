@@ -125,10 +125,12 @@ Changes pushed to `main` branch auto-deploy to Railway:
 **Fix:** Trailing stop orders not refreshing orders list after fill
 
 - **Problem 1:** When trailing stop detected fill, the orders list still showed the order as OPEN.
-- **Problem 2:** When fill timeout occurred and cancel returned error 5001 ("being executed"), the system gave up after one re-check, but E*TRADE API is slow to update.
-- **Fix 1:** Added `loadOrders(currentAccountIdKey);` after fill detection.
-- **Fix 2:** When error 5001 occurs, keep polling for fill for up to 30 more seconds, showing progress like "Order filling... confirming (5/30s)".
-- **File:** `static/js/app.js`
+- **Problem 2:** When fill timeout occurred and cancel returned error 5001 ("being executed"), the system gave up after one re-check.
+- **Problem 3:** Even with 30s extended polling, fills weren't detected because E*TRADE keeps filled orders in OPEN status before moving to EXECUTED.
+- **Fix 1:** Added `loadOrders()` after fill detection in app.js.
+- **Fix 2:** When error 5001 occurs, keep polling for fill for up to 30 more seconds.
+- **Fix 3:** Server-side check-fill now checks BOTH EXECUTED and OPEN orders, looking for filledQuantity > 0.
+- **Files:** `static/js/app.js`, `server.py`
 
 ## Common Tasks
 
