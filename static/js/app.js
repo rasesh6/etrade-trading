@@ -874,29 +874,61 @@ function startTrailingStopMonitoring(orderId, symbol, quantity, side, trailingSt
                         const cancelData = await cancelResponse.json();
 
                         if (!cancelData.success && (cancelData.error?.includes('5001') || cancelData.error?.includes('being executed'))) {
-                            // Order is being executed = likely filled. Re-check fill status and continue if filled.
-                            updateTrailingStopStatus('timeout', `⚠️ Order may have filled. Re-checking...`);
-                            const recheckResponse = await fetch(`/api/trailing-stops/${orderId}/check-fill`);
-                            const recheckData = await recheckResponse.json();
+                            // Order is being executed = definitely filled or filling.
+                            // E*TRADE API is slow, so keep polling for fill confirmation.
+                            let recheckAttempts = 0;
+                            const maxRecheckAttempts = 30; // Try for 30 more seconds
 
-                            if (recheckData.filled) {
-                                // Fill confirmed! Continue with trailing stop flow
-                                trailingStopState = 'waiting_confirmation';
-                                monitoringActive = true;
-                                updateTrailingStopStatus('waiting_confirmation',
-                                    `✅ Filled @ ${formatCurrency(recheckData.fill_price)}. Waiting for trigger...`
+                            async function recheckFill() {
+                                recheckAttempts++;
+                                updateTrailingStopStatus('waiting_fill',
+                                    `⏳ Order filling... confirming (${recheckAttempts}/${maxRecheckAttempts}s)`
                                 );
-                                loadOrders(currentAccountIdKey);
-                                loadPositions(currentAccountIdKey);
-                                // Restart monitoring for confirmation
-                                fillCheckInterval = setInterval(doMonitor, 1000);
-                                return;
+
+                                try {
+                                    const recheckResponse = await fetch(`/api/trailing-stops/${orderId}/check-fill`);
+                                    const recheckData = await recheckResponse.json();
+
+                                    if (recheckData.filled) {
+                                        // Fill confirmed! Continue with trailing stop flow
+                                        trailingStopState = 'waiting_confirmation';
+                                        monitoringActive = true;
+                                        updateTrailingStopStatus('waiting_confirmation',
+                                            `✅ Filled @ ${formatCurrency(recheckData.fill_price)}. Waiting for trigger...`
+                                        );
+                                        loadOrders(currentAccountIdKey);
+                                        loadPositions(currentAccountIdKey);
+                                        // Restart monitoring for confirmation
+                                        fillCheckInterval = setInterval(doMonitor, 1000);
+                                        return;
+                                    }
+
+                                    if (recheckAttempts < maxRecheckAttempts) {
+                                        // Keep trying
+                                        setTimeout(recheckFill, 1000);
+                                    } else {
+                                        // Exhausted retries - but order likely filled
+                                        updateTrailingStopStatus('timeout',
+                                            `⚠️ Fill delayed. Check positions. Order ${orderId} likely filled.`
+                                        );
+                                        loadOrders(currentAccountIdKey);
+                                        loadPositions(currentAccountIdKey);
+                                    }
+                                } catch (e) {
+                                    if (recheckAttempts < maxRecheckAttempts) {
+                                        setTimeout(recheckFill, 1000);
+                                    } else {
+                                        updateTrailingStopStatus('error',
+                                            `⚠️ API error. Check positions. Order ${orderId} likely filled.`
+                                        );
+                                        loadOrders(currentAccountIdKey);
+                                        loadPositions(currentAccountIdKey);
+                                    }
+                                }
                             }
 
-                            // Still not confirmed as filled
-                            updateTrailingStopStatus('timeout', `⚠️ Order may have filled. Check positions manually.`);
-                            loadOrders(currentAccountIdKey);
-                            loadPositions(currentAccountIdKey);
+                            // Start rechecking
+                            recheckFill();
                             return;
                         }
 

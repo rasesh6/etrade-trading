@@ -124,10 +124,10 @@ Changes pushed to `main` branch auto-deploy to Railway:
 ### v1.5.5 (2026-02-23)
 **Fix:** Trailing stop orders not refreshing orders list after fill
 
-- **Problem 1:** When trailing stop detected fill and transitioned to "waiting for confirmation", the orders list still showed the order as OPEN.
-- **Problem 2:** When fill timeout occurred and cancel returned error 5001 ("being executed"), the system gave up instead of continuing with trailing stop placement.
-- **Fix 1:** Added `loadOrders(currentAccountIdKey);` in `app.js` line 862 after fill detection.
-- **Fix 2:** When error 5001 occurs, re-check fill status and if confirmed, continue with trailing stop flow.
+- **Problem 1:** When trailing stop detected fill, the orders list still showed the order as OPEN.
+- **Problem 2:** When fill timeout occurred and cancel returned error 5001 ("being executed"), the system gave up after one re-check, but E*TRADE API is slow to update.
+- **Fix 1:** Added `loadOrders(currentAccountIdKey);` after fill detection.
+- **Fix 2:** When error 5001 occurs, keep polling for fill for up to 30 more seconds, showing progress like "Order filling... confirming (5/30s)".
 - **File:** `static/js/app.js`
 
 ## Common Tasks

@@ -47,15 +47,15 @@ system just showed "Order may have filled" without continuing with trailing stop
 ### Root Cause:
 1. In `app.js` `startTrailingStopMonitoring()`, when fill was detected, the code didn't
    call `loadOrders()` to refresh the orders list.
-2. Error 5001 handling gave up instead of re-checking fill and continuing.
+2. Error 5001 handling only did a single re-check, but E*TRADE API is slow to update.
 
 ### Solution:
 1. Added `loadOrders(currentAccountIdKey);` after detecting the fill.
-2. When error 5001 occurs, re-check fill status and if confirmed, continue with trailing
-   stop flow instead of giving up.
+2. When error 5001 occurs, keep polling for fill confirmation for up to 30 more seconds
+   instead of giving up after a single check. Show progress like "Order filling... confirming (5/30s)".
 
 ### File Changed:
-- `static/js/app.js` - Lines 862, 876-903: Enhanced error 5001 handling
+- `static/js/app.js` - Lines 862, 876-945: Persistent fill checking after error 5001
 
 ### Note:
 Profit target orders already had this fix (line 703). Simple orders without profit/trailing
