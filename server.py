@@ -34,6 +34,10 @@ _oauth_sessions = {}
 # Format: {order_id: {symbol, quantity, profit_offset_type, profit_offset, account_id_key, opening_side}}
 _pending_profit_orders = {}
 
+# Store pending trailing stop limit orders (in memory - will be lost on restart)
+# Format: {order_id: {symbol, quantity, trail_amount, account_id_key, opening_side, fill_timeout, stop_order_id}}
+_pending_trailing_stop_limit_orders = {}
+
 
 # ==================== ROUTES ====================
 
@@ -598,6 +602,32 @@ def place_order():
             logger.info(f"Created trailing stop for order {order_id}: trigger {trailing_stop.trigger_offset}({trailing_stop.trigger_type}), "
                        f"stop {trailing_stop.stop_offset}({trailing_stop.stop_type})")
 
+        # If trailing stop limit is enabled, create pending trailing stop limit
+        trailing_stop_limit_enabled = data.get('trailing_stop_limit_enabled', False)
+        trailing_stop_limit_response = None
+
+        if trailing_stop_limit_enabled and order_id:
+            trail_amount = float(data.get('trail_amount', 0))
+            tsl_fill_timeout = int(data.get('fill_timeout', 15))
+
+            _pending_trailing_stop_limit_orders[order_id] = {
+                'symbol': symbol,
+                'quantity': quantity,
+                'trail_amount': trail_amount,
+                'account_id_key': account_id_key,
+                'opening_side': side,
+                'fill_timeout': tsl_fill_timeout,
+                'stop_order_id': None,
+                'status': 'waiting_fill',
+                'created_at': datetime.utcnow().isoformat()
+            }
+            trailing_stop_limit_response = {
+                'enabled': True,
+                'trail_amount': trail_amount,
+                'fill_timeout': tsl_fill_timeout
+            }
+            logger.info(f"Created trailing stop limit for order {order_id}: trail_amount={trail_amount}")
+
         return jsonify({
             'success': True,
             'order': {
@@ -611,7 +641,8 @@ def place_order():
                 'message': result.get('message', 'Order placed successfully'),
                 'profit_offset_type': profit_offset_type,
                 'profit_offset': profit_offset,
-                'trailing_stop': trailing_stop_response
+                'trailing_stop': trailing_stop_response,
+                'trailing_stop_limit': trailing_stop_limit_response
             }
         })
 
@@ -1438,6 +1469,166 @@ def cancel_trailing_stop(opening_order_id):
 
     except Exception as e:
         logger.error(f"Cancel trailing stop failed: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==================== TRAILING STOP LIMIT API ====================
+
+@app.route('/api/trailing-stop-limit/<int:order_id>/check-fill', methods=['GET'])
+def check_trailing_stop_limit_fill(order_id):
+    """
+    Check if opening order filled and place trailing stop limit if so.
+    """
+    try:
+        tsl = _pending_trailing_stop_limit_orders.get(order_id)
+        if not tsl:
+            return jsonify({
+                'filled': False,
+                'error': f'No trailing stop limit found for order {order_id}'
+            })
+
+        # If stop already placed, just return status
+        if tsl.get('stop_order_id'):
+            return jsonify({
+                'filled': True,
+                'trailing_stop_placed': True,
+                'stop_order_id': tsl['stop_order_id'],
+                'stop_price': tsl.get('stop_price')
+            })
+
+        client = _get_authenticated_client()
+
+        # Fetch ALL orders (no status filter) to find the order
+        all_orders = client.get_orders(tsl['account_id_key'], status=None)
+
+        fill_price = None
+        order_filled = False
+
+        for order in all_orders:
+            # Handle nested Orders structure
+            if 'Orders' in order:
+                order = order['Orders']
+
+            order_id_str = str(order.get('orderId', ''))
+            if order_id_str != str(order_id):
+                continue
+
+            # Found the order - check for full fill
+            for detail in order.get('OrderDetail', []):
+                ordered_qty = int(detail.get('orderedQuantity', 0))
+                filled_qty = int(detail.get('filledQuantity', 0))
+
+                if filled_qty >= ordered_qty and ordered_qty > 0:
+                    order_filled = True
+                    # Get fill price from Instrument
+                    for inst in detail.get('Instrument', []):
+                        fill_price = float(inst.get('averageExecutionPrice', 0))
+                        if fill_price > 0:
+                            break
+                break
+            break
+
+        if not order_filled:
+            return jsonify({'filled': False})
+
+        logger.info(f"Trailing stop limit order {order_id} filled at {fill_price}")
+
+        # Place TRAILING_STOP_CNST LIMIT order
+        closing_side = 'SELL' if tsl['opening_side'] in ['BUY', 'BUY_TO_COVER'] else 'BUY'
+        trail_amount = tsl['trail_amount']
+
+        stop_order_data = {
+            'symbol': tsl['symbol'],
+            'quantity': tsl['quantity'],
+            'orderAction': closing_side,
+            'priceType': 'TRAILING_STOP_CNST',
+            'orderTerm': 'GOOD_FOR_DAY',
+            'stopPrice': str(trail_amount),           # Trail amount (how far behind)
+            'stopLimitPrice': '0.01'                   # Limit offset from stop
+        }
+
+        try:
+            stop_preview = client.preview_order(tsl['account_id_key'], stop_order_data)
+            stop_result = client.place_order(
+                tsl['account_id_key'],
+                stop_order_data,
+                preview_id=stop_preview.get('preview_id'),
+                client_order_id=stop_preview.get('client_order_id')
+            )
+            stop_order_id = stop_result.get('order_id')
+
+            logger.info(f"Placed TRAILING_STOP_CNST order {stop_order_id} for {tsl['symbol']} @ trail {trail_amount}")
+
+            # Update pending order
+            tsl['stop_order_id'] = stop_order_id
+            tsl['stop_price'] = trail_amount
+            tsl['fill_price'] = fill_price
+            tsl['status'] = 'stop_placed'
+
+            return jsonify({
+                'filled': True,
+                'trailing_stop_placed': True,
+                'fill_price': fill_price,
+                'stop_order_id': stop_order_id,
+                'stop_price': trail_amount,
+                'trail_amount': trail_amount
+            })
+
+        except Exception as e:
+            logger.error(f"Failed to place trailing stop limit order: {e}")
+            tsl['status'] = 'error'
+            tsl['error'] = str(e)
+            return jsonify({
+                'filled': True,
+                'trailing_stop_placed': False,
+                'error': str(e)
+            })
+
+    except Exception as e:
+        logger.error(f"Check trailing stop limit fill failed: {e}")
+        return jsonify({'filled': False, 'error': str(e)})
+
+
+@app.route('/api/trailing-stop-limit/<int:order_id>/cancel', methods=['POST'])
+def cancel_trailing_stop_limit(order_id):
+    """Cancel a trailing stop limit order"""
+    try:
+        tsl = _pending_trailing_stop_limit_orders.get(order_id)
+        if not tsl:
+            return jsonify({
+                'success': False,
+                'error': f'No trailing stop limit found for order {order_id}'
+            }), 404
+
+        client = _get_authenticated_client()
+        cancelled_orders = []
+
+        # Cancel stop order if placed
+        if tsl.get('stop_order_id'):
+            try:
+                client.cancel_order(tsl['account_id_key'], tsl['stop_order_id'])
+                cancelled_orders.append(f'stop:{tsl["stop_order_id"]}')
+            except Exception as e:
+                logger.warning(f"Could not cancel stop order: {e}")
+
+        # Cancel opening order
+        try:
+            client.cancel_order(tsl['account_id_key'], order_id)
+            cancelled_orders.append(f'opening:{order_id}')
+        except Exception as e:
+            logger.warning(f"Could not cancel opening order: {e}")
+
+        # Remove from pending
+        del _pending_trailing_stop_limit_orders[order_id]
+
+        return jsonify({
+            'success': True,
+            'cancelled_orders': cancelled_orders,
+            'message': 'Trailing stop limit cancelled'
+        })
+
+    except Exception as e:
+        logger.error(f"Cancel trailing stop limit failed: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

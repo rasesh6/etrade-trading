@@ -618,6 +618,7 @@ class ETradeClient:
         price_type = order_data.get('priceType', 'MARKET')
         limit_price = order_data.get('limitPrice', '')
         stop_price = order_data.get('stopPrice', '')
+        stop_limit_price = order_data.get('stopLimitPrice', '')
 
         if price_type == 'MARKET':
             limit_price = ''
@@ -644,8 +645,19 @@ class ETradeClient:
         if price_type == 'STOP_LIMIT' and stop_price:
             stop_price_element = f'<stopPrice>{stop_price}</stopPrice>\n        '
             logger.info(f"DEBUG: Including stopPrice={stop_price} for STOP_LIMIT order")
+        elif price_type == 'TRAILING_STOP_CNST' and stop_price:
+            # For trailing stop, stopPrice is the trail amount
+            stop_price_element = f'<stopPrice>{stop_price}</stopPrice>\n        '
+            logger.info(f"DEBUG: Including stopPrice={stop_price} for TRAILING_STOP_CNST order")
         else:
             stop_price_element = ''
+
+        # stopLimitPrice for trailing stop limit orders
+        if price_type == 'TRAILING_STOP_CNST' and stop_limit_price:
+            stop_limit_price_element = f'<stopLimitPrice>{stop_limit_price}</stopLimitPrice>\n        '
+            logger.info(f"DEBUG: Including stopLimitPrice={stop_limit_price} for TRAILING_STOP_CNST order")
+        else:
+            stop_limit_price_element = ''
 
         if price_type in ['LIMIT', 'STOP_LIMIT'] and limit_price:
             limit_price_element = f'<limitPrice>{limit_price}</limitPrice>\n        '
@@ -661,7 +673,7 @@ class ETradeClient:
         <priceType>{price_type}</priceType>
         <orderTerm>{order_term}</orderTerm>
         <marketSession>REGULAR</marketSession>
-        {stop_price_element}{limit_price_element}<Instrument>
+        {stop_price_element}{stop_limit_price_element}{limit_price_element}<Instrument>
             <Product>
                 <securityType>EQ</securityType>
                 <symbol>{order_data.get('symbol', '').upper()}</symbol>

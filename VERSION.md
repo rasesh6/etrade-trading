@@ -1,6 +1,6 @@
 # E*TRADE Trading System - Version History
 
-## Current Version: v1.5.7
+## Current Version: v1.5.8
 
 **Status: WORKING - Premium UI Design**
 **Commit:** (pending)
@@ -26,12 +26,40 @@
 | Auto Fill Checking | ✅ WORKING | Polls every 1 second |
 | Auto Cancel on Timeout | ✅ WORKING | Cancel if not filled within timeout |
 | STOP_LIMIT Orders | ✅ WORKING | Stop price + limit price |
-| **Confirmation Stop** | ✅ WORKING | v1.5.0 - Confirmation-based with guaranteed profit |
-| **Exit Strategy Dropdown** | ✅ WORKING | v1.5.7 - None, Profit Target, Confirmation Stop |
+| **Confirmation Stop Limit** | ✅ WORKING | v1.5.0 - Confirmation-based with guaranteed profit |
+| **Trailing Stop Limit ($)** | ✅ WORKING | v1.5.8 - TRAILING_STOP_CNST with limit |
+| **Exit Strategy Dropdown** | ✅ WORKING | v1.5.7 - None, Profit Target, Confirmation Stop Limit, Trailing Stop Limit |
 | **API Error Handling** | ✅ WORKING | v1.5.1 - Handles E*TRADE 500 errors gracefully |
 | **Exponential Backoff** | ✅ WORKING | v1.5.3 - Fixed implementation |
 | **Premium UI** | ✅ WORKING | v1.5.4 - Terminal Luxe design |
 | Redis Token Storage | ✅ WORKING | Using Redis-Y5_F service |
+
+---
+
+## v1.5.8 - Trailing Stop Limit Implementation (2026-02-23)
+
+### New Feature:
+**Trailing Stop Limit ($)** - A true trailing stop that follows price by a fixed dollar amount.
+
+### How it works:
+1. Place BUY order with Trailing Stop Limit enabled
+2. Wait for order to fill
+3. Place TRAILING_STOP_CNST LIMIT order that trails price by specified amount
+4. E*TRADE manages the trailing automatically
+
+### Order Type: TRAILING_STOP_CNST
+- `stopPrice` = trail amount (how far behind price to trail)
+- `stopLimitPrice` = limit offset from stop ($0.01 for limit execution)
+
+### UI Changes:
+- Renamed "Confirmation Stop" to "Confirmation Stop Limit" for clarity
+- Enabled "Trailing Stop Limit ($)" option in dropdown
+
+### Files Changed:
+- `templates/index.html` - Enabled trailing stop limit option
+- `static/js/app.js` - Added startTrailingStopLimitMonitoring()
+- `server.py` - Added /api/trailing-stop-limit endpoints
+- `etrade_client.py` - Added TRAILING_STOP_CNST support with stopLimitPrice
 
 ---
 
@@ -283,7 +311,8 @@ When price hits $102:
 
 | Version | Date | Status | Key Changes |
 |---------|------|--------|-------------|
-| v1.5.7 | 2026-02-23 | ✅ CURRENT | Exit strategy dropdown (None, Profit Target, Confirmation Stop) |
+| v1.5.8 | 2026-02-23 | ✅ CURRENT | Trailing Stop Limit ($), renamed to Confirmation Stop Limit |
+| v1.5.7 | 2026-02-23 | Working | Exit strategy dropdown |
 | v1.5.6 | 2026-02-23 | Working | Renamed to Confirmation Stop, fixed orders refresh |
 | v1.5.5 | 2026-02-23 | Working | Fixed confirmation stop fill not refreshing orders list |
 | v1.5.4 | 2026-02-21 | Working | Premium Terminal Luxe UI design |

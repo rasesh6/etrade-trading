@@ -599,6 +599,8 @@ async function placeOrder() {
 
     // Check for confirmation stop order
     const enableConfirmationStop = exitStrategy === 'confirmation-stop';
+    // Check for trailing stop limit order
+    const enableTrailingStopLimit = exitStrategy === 'trailing-stop';
     let trailingStopParams = {};
 
     if (enableConfirmationStop) {
@@ -622,6 +624,19 @@ async function placeOrder() {
             trailing_stop_stop_offset: stopOffset,
             fill_timeout: parseInt(document.getElementById('trailing-stop-fill-timeout').value) || 15,
             trailing_stop_confirmation_timeout: parseInt(document.getElementById('trailing-stop-confirm-timeout').value) || 300
+        };
+    } else if (enableTrailingStopLimit) {
+        const trailAmount = parseFloat(document.getElementById('trailing-amount').value) || 0;
+
+        if (trailAmount <= 0) {
+            alert('Please enter a valid trail amount');
+            return;
+        }
+
+        trailingStopParams = {
+            trailing_stop_limit_enabled: true,
+            trail_amount: trailAmount,
+            fill_timeout: parseInt(document.getElementById('trailing-fill-timeout').value) || 15
         };
     }
 
@@ -663,6 +678,16 @@ async function placeOrder() {
                     quantity,
                     currentSide,
                     data.order.trailing_stop
+                );
+            }
+            // If trailing stop limit enabled, start monitoring
+            else if (enableTrailingStopLimit && data.order.order_id && data.order.trailing_stop_limit) {
+                startTrailingStopLimitMonitoring(
+                    data.order.order_id,
+                    symbol,
+                    quantity,
+                    currentSide,
+                    data.order.trailing_stop_limit
                 );
             }
             // If simple profit target enabled, start standard monitoring
@@ -763,6 +788,115 @@ function startOrderMonitoring(orderId, symbol, quantity, side, offsetType, offse
 
     // Poll every 1 second
     fillCheckInterval = setInterval(checkFill, 1000);
+}
+
+// ==================== TRAILING STOP LIMIT MONITORING ====================
+
+function startTrailingStopLimitMonitoring(orderId, symbol, quantity, side, tslConfig) {
+    const statusCard = document.getElementById('order-status-card');
+    const statusContent = document.getElementById('order-status-content');
+
+    statusCard.style.display = 'block';
+
+    const fillTimeout = tslConfig.fill_timeout || 15;
+    let elapsedSeconds = 0;
+    let monitoringActive = true;
+
+    // Clear any existing interval
+    if (fillCheckInterval) {
+        clearInterval(fillCheckInterval);
+        clearTimeout(fillCheckInterval);
+    }
+
+    updateTrailingStopLimitStatus('waiting_fill', `Waiting for fill... (0/${fillTimeout}s)`);
+
+    async function doMonitor() {
+        if (!monitoringActive) return;
+
+        try {
+            // State: waiting for fill
+            if (elapsedSeconds < fillTimeout) {
+                elapsedSeconds++;
+
+                const response = await fetch(`/api/trailing-stop-limit/${orderId}/check-fill`);
+                const data = await response.json();
+
+                if (data.filled) {
+                    if (data.trailing_stop_placed) {
+                        updateTrailingStopLimitStatus('stop_active',
+                            `✅ Filled @ ${formatCurrency(data.fill_price)}. Trailing stop limit placed @ ${formatCurrency(data.stop_price)} trail.`
+                        );
+                        loadOrders(currentAccountIdKey);
+                        loadPositions(currentAccountIdKey);
+                        return;
+                    } else if (data.error) {
+                        updateTrailingStopLimitStatus('error', `❌ Error: ${data.error}`);
+                        loadOrders(currentAccountIdKey);
+                        return;
+                    }
+                }
+
+                updateTrailingStopLimitStatus('waiting_fill',
+                    `Waiting for fill... (${elapsedSeconds}/${fillTimeout}s)`
+                );
+            } else {
+                // Timeout - cancel order
+                monitoringActive = false;
+                updateTrailingStopLimitStatus('timeout', `Timeout. Cancelling order...`);
+
+                try {
+                    const cancelResponse = await fetch(`/api/trailing-stop-limit/${orderId}/cancel`, { method: 'POST' });
+                    const cancelData = await cancelResponse.json();
+
+                    if (cancelData.error?.includes('5001') || cancelData.error?.includes('being executed')) {
+                        updateTrailingStopLimitStatus('error', `⚠️ Order may have filled. Check positions.`);
+                        loadOrders(currentAccountIdKey);
+                        loadPositions(currentAccountIdKey);
+                        return;
+                    }
+
+                    updateTrailingStopLimitStatus('timeout', `Order cancelled (not filled within ${fillTimeout}s)`);
+                    loadOrders(currentAccountIdKey);
+                } catch (e) {
+                    updateTrailingStopLimitStatus('error', `Failed to cancel: ${e.message}`);
+                }
+            }
+        } catch (e) {
+            console.error('Trailing stop limit monitoring error:', e);
+        }
+    }
+
+    // Poll every 1 second
+    fillCheckInterval = setInterval(doMonitor, 1000);
+}
+
+function updateTrailingStopLimitStatus(state, message) {
+    const statusContent = document.getElementById('order-status-content');
+
+    const stateLabels = {
+        'waiting_fill': '⏳ Waiting for Fill',
+        'stop_active': '📉 Trailing Stop Limit Active',
+        'complete': '✅ Complete',
+        'timeout': '⚠️ Timeout',
+        'error': '❌ Error'
+    };
+
+    const stateColors = {
+        'waiting_fill': '#ffc107',
+        'stop_active': '#28a745',
+        'complete': '#28a745',
+        'timeout': '#dc3545',
+        'error': '#dc3545'
+    };
+
+    statusContent.innerHTML = `
+        <div class="bracket-status">
+            <div class="bracket-state" style="color: ${stateColors[state] || '#666'}">
+                ${stateLabels[state] || state}
+            </div>
+            <div class="bracket-message">${message}</div>
+        </div>
+    `;
 }
 
 function updateOrderStatus(message, type = 'info') {
