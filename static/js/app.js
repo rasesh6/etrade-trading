@@ -874,7 +874,27 @@ function startTrailingStopMonitoring(orderId, symbol, quantity, side, trailingSt
                         const cancelData = await cancelResponse.json();
 
                         if (!cancelData.success && (cancelData.error?.includes('5001') || cancelData.error?.includes('being executed'))) {
-                            updateTrailingStopStatus('timeout', `⚠️ Order may have filled. Check positions.`);
+                            // Order is being executed = likely filled. Re-check fill status and continue if filled.
+                            updateTrailingStopStatus('timeout', `⚠️ Order may have filled. Re-checking...`);
+                            const recheckResponse = await fetch(`/api/trailing-stops/${orderId}/check-fill`);
+                            const recheckData = await recheckResponse.json();
+
+                            if (recheckData.filled) {
+                                // Fill confirmed! Continue with trailing stop flow
+                                trailingStopState = 'waiting_confirmation';
+                                monitoringActive = true;
+                                updateTrailingStopStatus('waiting_confirmation',
+                                    `✅ Filled @ ${formatCurrency(recheckData.fill_price)}. Waiting for trigger...`
+                                );
+                                loadOrders(currentAccountIdKey);
+                                loadPositions(currentAccountIdKey);
+                                // Restart monitoring for confirmation
+                                fillCheckInterval = setInterval(doMonitor, 1000);
+                                return;
+                            }
+
+                            // Still not confirmed as filled
+                            updateTrailingStopStatus('timeout', `⚠️ Order may have filled. Check positions manually.`);
                             loadOrders(currentAccountIdKey);
                             loadPositions(currentAccountIdKey);
                             return;

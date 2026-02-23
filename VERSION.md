@@ -41,17 +41,21 @@
 When a trailing stop order filled and transitioned to "waiting for confirmation" state,
 the Orders list in the UI still showed the order as "OPEN" even though it was filled.
 
+Also, when fill timeout occurred and cancel returned error 5001 ("being executed"), the
+system just showed "Order may have filled" without continuing with trailing stop placement.
+
 ### Root Cause:
-In `app.js` `startTrailingStopMonitoring()`, when the fill was detected (lines 856-862),
-the code transitioned to `waiting_confirmation` state without calling `loadOrders()` to
-refresh the orders list. This caused filled orders to remain visible in the OPEN orders list.
+1. In `app.js` `startTrailingStopMonitoring()`, when fill was detected, the code didn't
+   call `loadOrders()` to refresh the orders list.
+2. Error 5001 handling gave up instead of re-checking fill and continuing.
 
 ### Solution:
-Added `loadOrders(currentAccountIdKey);` after detecting the fill, before transitioning
-to the `waiting_confirmation` state.
+1. Added `loadOrders(currentAccountIdKey);` after detecting the fill.
+2. When error 5001 occurs, re-check fill status and if confirmed, continue with trailing
+   stop flow instead of giving up.
 
 ### File Changed:
-- `static/js/app.js` - Line 862: Added orders list refresh on trailing stop fill
+- `static/js/app.js` - Lines 862, 876-903: Enhanced error 5001 handling
 
 ### Note:
 Profit target orders already had this fix (line 703). Simple orders without profit/trailing
