@@ -538,6 +538,8 @@ Location: `/opt/miniconda3/lib/python3.13/site-packages/pyetrade/order.py`
 
 E*TRADE supports native trailing stop orders that automatically adjust as price moves.
 
+**Important:** Standard trailing stops (`TRAILING_STOP_CNST`) become MARKET orders when triggered. To get a LIMIT execution, use `stopLimitPrice` field.
+
 **Dollar-based Trailing Stop (`TRAILING_STOP_CNST`):**
 ```xml
 <Order>
@@ -550,7 +552,21 @@ E*TRADE supports native trailing stop orders that automatically adjust as price 
 - `stopPrice`: Dollar amount to trail behind current price (e.g., 0.10 = $0.10 trail)
 - Stop price automatically moves UP as stock price rises
 - Stop price never moves down
-- Triggers market order when price drops by trail amount from peak
+- **Becomes MARKET order when triggered** (potential slippage)
+
+**Dollar-based Trailing Stop LIMIT (`TRAILING_STOP_CNST` + `stopLimitPrice`):**
+```xml
+<Order>
+    <priceType>TRAILING_STOP_CNST</priceType>
+    <stopPrice>0.10</stopPrice>
+    <stopLimitPrice>0.01</stopLimitPrice>
+    <orderTerm>GOOD_FOR_DAY</orderTerm>
+    ...
+</Order>
+```
+- `stopPrice`: Dollar amount to trail behind current price (e.g., 0.10 = $0.10 trail)
+- `stopLimitPrice`: Limit price offset from stop trigger (e.g., 0.01 = limit is $0.01 below stop)
+- **Becomes LIMIT order when triggered** (no slippage, but may not fill)
 
 **Percentage-based Trailing Stop (`TRAILING_STOP_PRCT`):**
 ```xml
@@ -563,6 +579,8 @@ E*TRADE supports native trailing stop orders that automatically adjust as price 
 ```
 - `stopPrice`: Percentage as whole number (e.g., 5 = 5% trail)
 - Stop price trails by percentage of peak price
+
+**Source:** etrader R package documentation (https://cran.r-project.org/web/packages/etrader/etrader.pdf)
 
 ### Order Terms
 

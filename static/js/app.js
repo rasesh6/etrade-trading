@@ -753,9 +753,17 @@ function startOrderMonitoring(orderId, symbol, quantity, side, offsetType, offse
 
             console.log('Profit Target check-fill:', data);
 
-            // Handle API errors - don't count toward timeout
+            // Handle API errors - still count toward timeout but show retry message
             if (data.api_error) {
-                updateOrderStatus(`Checking fill... API issue, retrying...`);
+                elapsed++;
+                updateOrderStatus(`Checking fill... API error (${elapsed}/${timeout}s)`);
+                // Check timeout
+                if (elapsed >= timeout) {
+                    monitoringActive = false;
+                    clearInterval(fillCheckInterval);
+                    updateOrderStatus(`⚠️ Fill check timeout (API unavailable). Order may still be active - check E*TRADE.`);
+                    loadOrders(currentAccountIdKey);
+                }
                 return;
             }
 
@@ -844,21 +852,41 @@ function startTrailingStopLimitMonitoring(orderId, symbol, quantity, side, tslCo
 
                 console.log('TSL check-fill response:', data);
 
-                // Handle API errors - don't count toward timeout
+                // Handle API errors - still count toward timeout but show retry message
                 if (data.api_error) {
                     console.warn('TSL fill check: E*TRADE API error, retrying...');
+                    fillElapsed++;
                     updateTrailingStopLimitStatus('waiting_fill',
-                        `Checking fill... E*TRADE API retrying...`
+                        `Checking fill... API error (${fillElapsed}/${fillTimeout}s)`
                     );
+                    // Check timeout
+                    if (fillElapsed >= fillTimeout) {
+                        monitoringActive = false;
+                        clearInterval(fillCheckInterval);
+                        updateTrailingStopLimitStatus('timeout',
+                            `⚠️ Fill check timeout (API unavailable). Order may still be active - check E*TRADE.`
+                        );
+                        loadOrders(currentAccountIdKey);
+                    }
                     return;
                 }
 
-                // Handle other errors
+                // Handle other errors - still count toward timeout
                 if (data.error && !data.filled) {
                     console.error('TSL fill check error:', data.error);
+                    fillElapsed++;
                     updateTrailingStopLimitStatus('waiting_fill',
-                        `Checking fill... API retrying...`
+                        `Checking fill... Error (${fillElapsed}/${fillTimeout}s)`
                     );
+                    // Check timeout
+                    if (fillElapsed >= fillTimeout) {
+                        monitoringActive = false;
+                        clearInterval(fillCheckInterval);
+                        updateTrailingStopLimitStatus('timeout',
+                            `⚠️ Fill check timeout. Order may still be active - check E*TRADE.`
+                        );
+                        loadOrders(currentAccountIdKey);
+                    }
                     return;
                 }
 
@@ -948,21 +976,41 @@ function startTrailingStopLimitMonitoring(orderId, symbol, quantity, side, tslCo
 
                 console.log('TSL check-trigger response:', data);
 
-                // Handle API errors - don't count toward timeout
+                // Handle API errors - still count toward timeout but show retry message
                 if (data.api_error) {
                     console.warn('TSL trigger check: E*TRADE API error, retrying...');
+                    triggerElapsed++;
                     updateTrailingStopLimitStatus('waiting_trigger',
-                        `Checking trigger... E*TRADE API retrying...`
+                        `Checking trigger... API error (${triggerElapsed}/${triggerTimeout}s)`
                     );
+                    // Check timeout
+                    if (triggerElapsed >= triggerTimeout) {
+                        monitoringActive = false;
+                        clearInterval(fillCheckInterval);
+                        updateTrailingStopLimitStatus('timeout',
+                            `⚠️ Trigger check timeout (API unavailable). Position remains open.`
+                        );
+                        loadOrders(currentAccountIdKey);
+                    }
                     return;
                 }
 
-                // Handle other errors
+                // Handle other errors - still count toward timeout
                 if (data.error && !data.triggered) {
                     console.error('TSL trigger check error:', data.error);
+                    triggerElapsed++;
                     updateTrailingStopLimitStatus('waiting_trigger',
-                        `Checking trigger... API retrying...`
+                        `Checking trigger... Error (${triggerElapsed}/${triggerTimeout}s)`
                     );
+                    // Check timeout
+                    if (triggerElapsed >= triggerTimeout) {
+                        monitoringActive = false;
+                        clearInterval(fillCheckInterval);
+                        updateTrailingStopLimitStatus('timeout',
+                            `⚠️ Trigger check timeout. Position remains open without trailing stop.`
+                        );
+                        loadOrders(currentAccountIdKey);
+                    }
                     return;
                 }
 
