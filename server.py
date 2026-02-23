@@ -1652,12 +1652,23 @@ def check_trailing_stop_limit_trigger(order_id):
         client = _get_authenticated_client()
 
         # Get current price from quote
-        quote = client.get_quote(tsl['symbol'])
-        current_price = None
-        if 'All' in quote:
-            current_price = float(quote['All'].get('lastTrade', 0))
-            if current_price == 0:
-                current_price = float(quote['All'].get('bid', 0))
+        try:
+            quote = client.get_quote(tsl['symbol'])
+            current_price = None
+            if 'All' in quote:
+                current_price = float(quote['All'].get('lastTrade', 0))
+                if current_price == 0:
+                    current_price = float(quote['All'].get('bid', 0))
+        except Exception as api_error:
+            error_msg = str(api_error)
+            logger.warning(f"TSL check-trigger: API error getting quote: {error_msg}")
+            if '500' in error_msg or 'not currently available' in error_msg:
+                return jsonify({
+                    'triggered': False,
+                    'api_error': True,
+                    'api_error_message': 'E*TRADE API temporarily unavailable'
+                })
+            raise
 
         if not current_price:
             return jsonify({

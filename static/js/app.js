@@ -845,6 +845,15 @@ function startTrailingStopLimitMonitoring(orderId, symbol, quantity, side, tslCo
                 console.log('TSL check-fill response:', data);
 
                 // Handle API errors - don't count toward timeout
+                if (data.api_error) {
+                    console.warn('TSL fill check: E*TRADE API error, retrying...');
+                    updateTrailingStopLimitStatus('waiting_fill',
+                        `Checking fill... E*TRADE API retrying...`
+                    );
+                    return;
+                }
+
+                // Handle other errors
                 if (data.error && !data.filled) {
                     console.error('TSL fill check error:', data.error);
                     updateTrailingStopLimitStatus('waiting_fill',
@@ -940,6 +949,15 @@ function startTrailingStopLimitMonitoring(orderId, symbol, quantity, side, tslCo
                 console.log('TSL check-trigger response:', data);
 
                 // Handle API errors - don't count toward timeout
+                if (data.api_error) {
+                    console.warn('TSL trigger check: E*TRADE API error, retrying...');
+                    updateTrailingStopLimitStatus('waiting_trigger',
+                        `Checking trigger... E*TRADE API retrying...`
+                    );
+                    return;
+                }
+
+                // Handle other errors
                 if (data.error && !data.triggered) {
                     console.error('TSL trigger check error:', data.error);
                     updateTrailingStopLimitStatus('waiting_trigger',
