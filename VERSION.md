@@ -1,6 +1,6 @@
 # E*TRADE Trading System - Version History
 
-## Current Version: v1.5.5
+## Current Version: v1.5.6
 
 **Status: WORKING - Premium UI Design**
 **Commit:** (pending)
@@ -26,12 +26,28 @@
 | Auto Fill Checking | ✅ WORKING | Polls every 1 second |
 | Auto Cancel on Timeout | ✅ WORKING | Cancel if not filled within timeout |
 | STOP_LIMIT Orders | ✅ WORKING | Stop price + limit price |
-| **Trailing Stop** | ✅ WORKING | v1.5.0 - Confirmation-based with guaranteed profit |
+| **Confirmation Stop** | ✅ WORKING | v1.5.0 - Confirmation-based with guaranteed profit (renamed from Trailing Stop) |
 | **API Error Handling** | ✅ WORKING | v1.5.1 - Handles E*TRADE 500 errors gracefully |
 | **Exponential Backoff** | ✅ WORKING | v1.5.3 - Fixed implementation |
 | **Premium UI** | ✅ WORKING | v1.5.4 - Terminal Luxe design |
-| **Orders List Refresh** | ✅ WORKING | v1.5.5 - Fixed trailing stop fill not refreshing orders |
+| **Orders List Refresh** | ✅ WORKING | v1.5.6 - Refresh orders after stop placed |
 | Redis Token Storage | ✅ WORKING | Using Redis-Y5_F service |
+
+---
+
+## v1.5.6 - UI Rename & Orders Refresh Fix (2026-02-23)
+
+### Changes:
+1. **Renamed "Trailing Stop" to "Confirmation Stop"** in UI labels
+   - This is a confirmation-based fixed stop, not a true trailing stop
+   - STOP_LIMIT order with limit $0.01 below stop price
+2. **Fixed orders list not refreshing after confirmation stop placed**
+   - Added `loadOrders()` call after stop is placed
+
+### Files Changed:
+- `templates/index.html` - Renamed "Trailing Stop" to "Confirmation Stop"
+- `static/js/app.js` - Updated status labels, added loadOrders() after stop placed
+- `trailing_stop_manager.py` - Updated docstrings
 
 ---
 
@@ -62,7 +78,7 @@ for 30+ seconds, causing trailing stops to never be placed.
 - `etrade_client.py` - get_orders(): Handle status=None to fetch all orders
 
 ### Partial Fill Handling:
-Only triggers trailing stop/profit order when `filledQuantity >= orderedQuantity` (full fill).
+Only triggers confirmation stop/profit order when `filledQuantity >= orderedQuantity` (full fill).
 
 ---
 
@@ -247,12 +263,13 @@ When price hits $102:
 
 | Version | Date | Status | Key Changes |
 |---------|------|--------|-------------|
-| v1.5.5 | 2026-02-23 | ✅ CURRENT | Fixed trailing stop fill not refreshing orders list |
+| v1.5.6 | 2026-02-23 | ✅ CURRENT | Renamed to Confirmation Stop, fixed orders refresh after stop placed |
+| v1.5.5 | 2026-02-23 | Working | Fixed confirmation stop fill not refreshing orders list |
 | v1.5.4 | 2026-02-21 | Working | Premium Terminal Luxe UI design |
 | v1.5.3 | 2026-02-20 | Working | Fixed exponential backoff implementation |
 | v1.5.2 | 2026-02-20 | ❌ BUG | Exponential backoff (broken - first call immediate) |
 | v1.5.1 | 2026-02-20 | Working | API error handling, cancel 5001 detection |
-| v1.5.0 | 2026-02-20 | Working | Trailing stop (single exit order, guaranteed profit) |
+| v1.5.0 | 2026-02-20 | Working | Confirmation stop (single exit order, guaranteed profit) |
 | v1.4.0 | 2026-02-19 | ❌ FAILED | Bracket orders failed (error 1037 - two sell orders not allowed) |
 | v1.3.3 | 2026-02-19 | Working | Fixed UI polling order (check fill BEFORE timeout) |
 | v1.3.2 | 2026-02-18 | Working | Faster fill polling (500ms) |

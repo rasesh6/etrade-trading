@@ -949,12 +949,13 @@ function startTrailingStopMonitoring(orderId, symbol, quantity, side, trailingSt
                     updateTrailingStopStatus('stop_active',
                         `✅ STOP LIMIT placed @ ${formatCurrency(confirmData.stop_price)}`
                     );
+                    loadOrders(currentAccountIdKey);  // Refresh orders list to show the new stop order
                     return;
                 }
 
                 if (confirmData.timeout || confirmElapsed >= confirmTimeout) {
                     updateTrailingStopStatus('timeout',
-                        `⚠️ Confirmation timeout. Position remains open without trailing stop.`
+                        `⚠️ Confirmation timeout. Position remains open without confirmation stop.`
                     );
                     clearInterval(fillCheckInterval);
                     monitoringActive = false;
@@ -999,7 +1000,7 @@ function updateTrailingStopStatus(state, message) {
         'waiting_fill': '⏳ Waiting for Fill',
         'verifying_fill': '🔍 Verifying Fill',
         'waiting_confirmation': '📈 Waiting for Confirmation',
-        'stop_active': '🛑 Trailing Stop Active',
+        'stop_active': '🛑 Confirmation Stop Active',
         'complete': '✅ Complete',
         'timeout': '⚠️ Timeout'
     };

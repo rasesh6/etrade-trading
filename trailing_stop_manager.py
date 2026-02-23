@@ -1,7 +1,7 @@
 """
-Trailing Stop Manager for E*TRADE Trading System
+Confirmation Stop Manager for E*TRADE Trading System
 
-Implements confirmation-based trailing stop orders:
+Implements confirmation-based stop orders:
 1. Place opening order (BUY or SELL_SHORT)
 2. Wait for fill
 3. Wait for price confirmation (move in favorable direction by trigger amount)
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class TrailingStopState:
-    """Trailing stop order states"""
+    """Confirmation stop order states"""
     PENDING_FILL = 'pending_fill'           # Waiting for opening order to fill
     WAITING_CONFIRMATION = 'waiting_confirmation'  # Filled, waiting for price confirmation
     STOP_PLACED = 'stop_placed'             # Stop order placed, monitoring
@@ -31,7 +31,7 @@ class TrailingStopState:
 
 
 class PendingTrailingStop:
-    """Represents a pending trailing stop order"""
+    """Represents a pending confirmation stop order"""
 
     def __init__(
         self,
@@ -266,7 +266,7 @@ class PendingTrailingStop:
 
 class TrailingStopManager:
     """
-    Manages pending trailing stop orders.
+    Manages pending confirmation stop orders.
 
     In-memory storage for now, can be migrated to Redis for persistence.
     """
