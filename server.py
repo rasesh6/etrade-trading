@@ -1208,34 +1208,6 @@ def check_trailing_stop_fill(opening_order_id):
             'trailing_stop': ts.to_dict(),
             'orders_checked': orders_checked
         })
-                                if fill_price:
-                                    break
-                    if fill_price:
-                        break
-            if fill_price:
-                break
-
-        if fill_price:
-            trailing_stop_manager.mark_filled(opening_order_id, fill_price)
-            logger.info(f"Trailing stop opening order {opening_order_id} filled at {fill_price}")
-
-            return jsonify({
-                'success': True,
-                'filled': True,
-                'fill_price': fill_price,
-                'trigger_price': ts.trigger_price,
-                'state': ts.state,
-                'trailing_stop': ts.to_dict(),
-                'orders_checked': orders_checked
-            })
-
-        return jsonify({
-            'success': True,
-            'filled': False,
-            'state': ts.state,
-            'trailing_stop': ts.to_dict(),
-            'orders_checked': orders_checked
-        })
 
     except Exception as e:
         logger.error(f"Check trailing stop fill failed: {e}")
