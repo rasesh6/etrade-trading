@@ -1,6 +1,6 @@
 # E*TRADE API Reference Documentation
 
-> **Last Updated:** 2026-02-19
+> **Last Updated:** 2026-02-23
 > **Purpose:** Complete reference for E*TRADE OAuth 1.0a implementation and API endpoints
 
 ---
@@ -514,6 +514,100 @@ Location: `/opt/miniconda3/lib/python3.13/site-packages/pyetrade/order.py`
 |------------|---------|-------|----------|
 | 101/1033 | "timed out your original order request" | Missing `<PreviewIds>` wrapper | Add `<PreviewIds><previewId>...</previewId></PreviewIds>` |
 | 900 | "Invalid Preview Id" | Wrong previewId format or expired | Ensure previewId is numeric, place immediately after preview |
+
+---
+
+## Order Types and Price Types (CRITICAL)
+
+### Supported Price Types
+
+| priceType | Description | Required Fields |
+|-----------|-------------|-----------------|
+| `MARKET` | Market order | None |
+| `LIMIT` | Limit order | `limitPrice` |
+| `STOP` | Stop order (becomes market when triggered) | `stopPrice` |
+| `STOP_LIMIT` | Stop limit order | `stopPrice`, `limitPrice` |
+| `TRAILING_STOP_CNST` | Trailing stop (dollar amount) | `stopPrice` (trail $ amount) |
+| `TRAILING_STOP_PRCT` | Trailing stop (percentage) | `stopPrice` (trail % as whole number, e.g., 5 for 5%) |
+| `MARKET_ON_OPEN` | Market on open | None |
+| `MARKET_ON_CLOSE` | Market on close | None |
+| `LIMIT_ON_OPEN` | Limit on open | `limitPrice` |
+| `LIMIT_ON_CLOSE` | Limit on close | `limitPrice` |
+
+### Trailing Stop Orders (Native E*TRADE Support)
+
+E*TRADE supports native trailing stop orders that automatically adjust as price moves.
+
+**Dollar-based Trailing Stop (`TRAILING_STOP_CNST`):**
+```xml
+<Order>
+    <priceType>TRAILING_STOP_CNST</priceType>
+    <stopPrice>0.10</stopPrice>
+    <orderTerm>GOOD_FOR_DAY</orderTerm>
+    ...
+</Order>
+```
+- `stopPrice`: Dollar amount to trail behind current price (e.g., 0.10 = $0.10 trail)
+- Stop price automatically moves UP as stock price rises
+- Stop price never moves down
+- Triggers market order when price drops by trail amount from peak
+
+**Percentage-based Trailing Stop (`TRAILING_STOP_PRCT`):**
+```xml
+<Order>
+    <priceType>TRAILING_STOP_PRCT</priceType>
+    <stopPrice>5</stopPrice>
+    <orderTerm>GOOD_FOR_DAY</orderTerm>
+    ...
+</Order>
+```
+- `stopPrice`: Percentage as whole number (e.g., 5 = 5% trail)
+- Stop price trails by percentage of peak price
+
+### Order Terms
+
+| orderTerm | Description |
+|-----------|-------------|
+| `GOOD_FOR_DAY` | Valid until market close |
+| `GOOD_TILL_CANCEL` | Valid until cancelled (up to 180 days) |
+| `IMMEDIATE_OR_CANCEL` | Fill immediately, cancel remainder |
+| `FILL_OR_KILL` | Fill entire order immediately or cancel |
+
+### Order Actions
+
+| orderAction | Description |
+|-------------|-------------|
+| `BUY` | Buy to open long position |
+| `SELL` | Sell to close long position |
+| `BUY_TO_COVER` | Buy to close short position |
+| `SELL_SHORT` | Sell to open short position |
+
+### XML Payload Structure
+
+```xml
+<PlaceOrderRequest>
+    <PreviewIds><previewId>123456789</previewId></PreviewIds>
+    <orderType>EQ</orderType>
+    <clientOrderId>9876543210</clientOrderId>
+    <Order>
+        <allOrNone>false</allOrNone>
+        <priceType>LIMIT</priceType>
+        <orderTerm>GOOD_FOR_DAY</orderTerm>
+        <marketSession>REGULAR</marketSession>
+        <stopPrice></stopPrice>
+        <limitPrice>150.00</limitPrice>
+        <Instrument>
+            <Product>
+                <securityType>EQ</securityType>
+                <symbol>AAPL</symbol>
+            </Product>
+            <orderAction>BUY</orderAction>
+            <quantityType>QUANTITY</quantityType>
+            <quantity>100</quantity>
+        </Instrument>
+    </Order>
+</PlaceOrderRequest>
+```
 
 ---
 
