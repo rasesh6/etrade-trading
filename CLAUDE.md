@@ -1,7 +1,7 @@
 # E*TRADE Trading System - Context for Claude Sessions
 
 > **Last Updated:** 2026-03-05
-> **Current Version:** v1.7.1
+> **Current Version:** v1.7.2
 
 ## Quick Start for New Sessions
 
@@ -141,7 +141,21 @@ Changes pushed to `main` branch auto-deploy to Railway:
 - View logs: `railway logs --tail 50`
 - Build logs: `railway logs --build --tail 50`
 
+## Security
+
+### HTTP Basic Auth
+- All routes protected when `AUTH_USERNAME` and `AUTH_PASSWORD` env vars are set
+- Uses `@app.before_request` + `secrets.compare_digest` (timing-safe)
+- No auth when env vars unset (local dev)
+- Railway: set as **shared variables** (project-level vars must be added to service's shared variables section)
+
 ## Recent Changes
+
+### v1.7.2 (2026-03-05)
+**Security: HTTP Basic Auth protection**
+- Added `@app.before_request` middleware requiring HTTP Basic Auth on all routes
+- Enabled via `AUTH_USERNAME` + `AUTH_PASSWORD` env vars (Railway shared variables)
+- Same pattern applied to Alpaca and Public projects
 
 ### v1.7.1 (2026-03-05)
 **Fixes: TSL limit offset + cancel reliability across all monitors**
@@ -199,6 +213,7 @@ No automated tests. Test manually via:
 3. CometD/Bayeux streaming API is dead (tested, all endpoints return 400 or DNS failure)
 4. No automated tests
 5. Single gunicorn worker means limited concurrent connections (mitigated by gevent green threads)
+6. Basic Auth credentials cached by browser password manager — clear saved passwords to force re-login
 
 ## References
 

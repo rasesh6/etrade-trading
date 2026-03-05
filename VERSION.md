@@ -1,6 +1,6 @@
 # E*TRADE Trading System - Version History
 
-## Current Version: v1.7.1
+## Current Version: v1.7.2
 
 **Status: WORKING - Server-Side Monitoring + Live Quotes**
 **Date:** 2026-03-05
@@ -51,6 +51,23 @@ Order
 ```
 
 All fill detection code must iterate through `OrderDetail[].Instrument[]` to check fill status.
+
+---
+
+## v1.7.2 - HTTP Basic Auth Protection (2026-03-05)
+
+### Security:
+- All routes now protected by HTTP Basic Auth when `AUTH_USERNAME` and `AUTH_PASSWORD` env vars are set
+- Uses `@app.before_request` middleware with `secrets.compare_digest` (timing-safe comparison)
+- When env vars are not set, no auth required (local development)
+- Set as **shared variables** in Railway (project-level vars must be added to service's shared variables)
+
+### Files Changed:
+- `server.py` - Added `import secrets`, `require_basic_auth()` before_request handler
+
+### Same pattern applied to:
+- `~/Projects/Alpaca/server.py`
+- `~/Projects/public/server.py`
 
 ---
 
@@ -523,7 +540,8 @@ When price hits $102:
 
 | Version | Date | Status | Key Changes |
 |---------|------|--------|-------------|
-| v1.7.1 | 2026-03-05 | ✅ CURRENT | TSL configurable limit offset, cancel reliability fix |
+| v1.7.2 | 2026-03-05 | ✅ CURRENT | HTTP Basic Auth protection for Railway |
+| v1.7.1 | 2026-03-05 | Working | TSL configurable limit offset, cancel reliability fix |
 | v1.7.0 | 2026-03-05 | Working | Server-side monitoring, SSE, live quotes, gevent worker |
 | v1.6.2 | 2026-02-23 | Working | UI readability fix, fill detection consistency check |
 | v1.6.1 | 2026-02-23 | Working | Fixed TSL fill detection - use Instrument level |

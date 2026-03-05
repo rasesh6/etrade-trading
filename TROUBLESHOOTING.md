@@ -1,7 +1,7 @@
 # E*TRADE Trading System - Troubleshooting Guide
 
 > **Last Updated:** 2026-03-05
-> **Current Version:** v1.7.0
+> **Current Version:** v1.7.2
 > **Environment:** PRODUCTION
 > **Timezone:** All times in **CST (Central Standard Time)** unless otherwise noted
 > **Purpose:** Quick reference for debugging issues in future sessions

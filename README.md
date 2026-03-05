@@ -4,7 +4,7 @@ A web-based trading interface for E*TRADE with server-side order monitoring, liv
 
 **Live URL**: https://web-production-9f73cd.up.railway.app
 **GitHub**: https://github.com/rasesh6/etrade-trading
-**Current Version**: v1.7.0 (Production Mode)
+**Current Version**: v1.7.2 (Production Mode)
 
 ## Features
 
@@ -140,6 +140,12 @@ etrade/
     └── js/app.js             # Application logic + SSE client
 ```
 
+## Security
+
+All routes protected by HTTP Basic Auth when `AUTH_USERNAME` and `AUTH_PASSWORD` environment variables are set. Browser prompts for credentials once and caches them for the session.
+
+Set these as **shared variables** in Railway (project-level vars must be explicitly shared with each service).
+
 ## Important Notes
 
 1. **Production Mode**: System is in PRODUCTION mode. Orders are REAL.
@@ -147,6 +153,7 @@ etrade/
 3. **Gevent Worker**: `gunicorn.conf.py` must set `worker_class = "gevent"` for SSE to work.
 4. **Single Worker**: Must use 1 worker for singleton OrderMonitor.
 5. **E*TRADE API**: Frequently returns 500 errors — handled with retries.
+6. **Basic Auth**: Set `AUTH_USERNAME` + `AUTH_PASSWORD` env vars to protect all routes.
 
 ## Documentation
 
