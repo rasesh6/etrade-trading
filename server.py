@@ -69,9 +69,9 @@ def auth_status():
 def start_login():
     """Start OAuth login flow - get authorization URL
 
-    Supports two modes:
-    1. Callback mode (use_callback=True): User is redirected back automatically
-    2. OOB mode (use_callback=False): User manually enters verification code
+    E*TRADE now always redirects to the callback URL after authorization,
+    even when OOB mode is requested. So we store request tokens in Redis
+    (keyed by oauth_token) so the callback handler can complete auth.
     """
     try:
         # Handle both JSON and empty POST requests
@@ -99,6 +99,14 @@ def start_login():
                 'request_token_secret': auth_data['request_token_secret']
             }
 
+        # Always store request tokens in Redis keyed by oauth_token
+        # so the callback handler can find them (E*TRADE redirects to callback
+        # even in OOB mode)
+        _store_request_tokens_for_callback(
+            auth_data['request_token'],
+            auth_data['request_token_secret']
+        )
+
         return jsonify({
             'success': True,
             'authorize_url': auth_data['authorize_url'],
@@ -110,6 +118,54 @@ def start_login():
     except Exception as e:
         logger.error(f"Login start failed: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _store_request_tokens_for_callback(request_token, request_token_secret):
+    """Store request tokens in Redis keyed by oauth_token for callback lookup"""
+    try:
+        token_manager = get_token_manager()
+        if token_manager.redis:
+            import json
+            token_manager.redis.setex(
+                f"etrade:request_token:{request_token}",
+                300,  # 5 minute expiry
+                json.dumps({'request_token_secret': request_token_secret})
+            )
+            logger.info(f"Stored request token in Redis for callback lookup")
+        else:
+            # File fallback
+            import json
+            with open(f'/tmp/etrade_request_{request_token[:20]}.json', 'w') as f:
+                json.dump({'request_token': request_token, 'request_token_secret': request_token_secret}, f)
+            logger.info(f"Stored request token in file for callback lookup")
+    except Exception as e:
+        logger.error(f"Failed to store request token for callback: {e}")
+
+
+def _lookup_request_token_secret(oauth_token):
+    """Look up request token secret from Redis or file for callback auth"""
+    try:
+        token_manager = get_token_manager()
+        if token_manager.redis:
+            import json
+            data = token_manager.redis.get(f"etrade:request_token:{oauth_token}")
+            if data:
+                return json.loads(data)['request_token_secret']
+        # File fallback - check for matching file
+        import json, glob as g
+        for path in g.glob('/tmp/etrade_request_*.json'):
+            try:
+                with open(path) as f:
+                    d = json.load(f)
+                if d.get('request_token') == oauth_token:
+                    import os
+                    os.remove(path)
+                    return d['request_token_secret']
+            except:
+                continue
+    except Exception as e:
+        logger.error(f"Failed to lookup request token: {e}")
+    return None
 
 
 @app.route('/api/auth/verify', methods=['POST'])
@@ -178,23 +234,31 @@ def auth_callback():
             logger.error("No verifier received in callback")
             return redirect(url_for('index', error='No+verifier+received+from+E*TRADE'))
 
-        # Try to find the OAuth session
+        # Try to find the OAuth session or request tokens
         client = ETradeClient()
+        result = None
 
         if flow_id and flow_id in _oauth_sessions:
-            # Use stored OAuth session
+            # Use stored OAuth session (callback mode, same process)
             logger.info(f"Found OAuth session for flow_id={flow_id}")
             client._oauth_session = _oauth_sessions.pop(flow_id)
             result = client.complete_authentication(oauth_verifier)
+        elif _oauth_sessions:
+            # Fallback: try any pending session
+            logger.info("Using first available OAuth session")
+            fid = list(_oauth_sessions.keys())[0]
+            client._oauth_session = _oauth_sessions.pop(fid)
+            result = client.complete_authentication(oauth_verifier)
         else:
-            # Fallback: try to find any pending session
-            if _oauth_sessions:
-                logger.info("Using first available OAuth session")
-                flow_id = list(_oauth_sessions.keys())[0]
-                client._oauth_session = _oauth_sessions.pop(flow_id)
-                result = client.complete_authentication(oauth_verifier)
+            # Look up request token secret from Redis/file (cross-process callback)
+            request_token_secret = _lookup_request_token_secret(oauth_token)
+            if request_token_secret:
+                logger.info("Found request token in Redis/file, completing auth via OOB path")
+                result = client.complete_authentication(
+                    oauth_verifier, oauth_token, request_token_secret
+                )
             else:
-                logger.error("No OAuth session found for callback")
+                logger.error("No OAuth session or request token found for callback")
                 return redirect(url_for('index', error='Session+expired.+Please+try+again.'))
 
         # Save tokens to storage

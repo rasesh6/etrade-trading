@@ -11,7 +11,7 @@ Wraps all E*TRADE API functionality:
 import json
 import random
 import logging
-from urllib.parse import unquote
+from urllib.parse import unquote, quote
 from requests import Session
 from requests_oauthlib import OAuth1, OAuth1Session
 from config import (
@@ -107,7 +107,7 @@ class ETradeClient:
             logger.info(f"oauth_callback_confirmed: should be True if callback registered")
 
             # Build authorization URL (E*TRADE format: url?key=consumer_key&token=request_token)
-            authorize_url = f"{AUTHORIZE_URL}?key={self.consumer_key}&token={request_token}"
+            authorize_url = f"{AUTHORIZE_URL}?key={self.consumer_key}&token={quote(request_token, safe='')}"
 
             logger.info(f"Generated authorization URL for token: {request_token[:20]}...")
             logger.info(f"Authorization URL: {authorize_url}")
