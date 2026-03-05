@@ -1,7 +1,7 @@
 # E*TRADE Trading System - Troubleshooting Guide
 
-> **Last Updated:** 2026-02-20
-> **Current Version:** v1.5.3-backoff-fix
+> **Last Updated:** 2026-03-05
+> **Current Version:** v1.7.0
 > **Environment:** PRODUCTION
 > **Timezone:** All times in **CST (Central Standard Time)** unless otherwise noted
 > **Purpose:** Quick reference for debugging issues in future sessions
@@ -42,10 +42,10 @@ railway whoami
 
 ### Check Recent Logs
 Look for deployment markers in Railway logs:
-- `v1.5.3-backoff-fix` - Fixed exponential backoff implementation
-- `v1.5.2-exponential-backoff` - Exponential backoff (broken)
-- `v1.5.1-api-error-handling` - API error handling fix
-- `v1.5.0-trailing-stop` - Trailing stop feature
+- `Using worker: gevent` - Correct worker type (v1.7.0+)
+- `Using worker: sync` - WRONG worker type, SSE will block (see Issue 22)
+- `[QuoteWatch]` - Quote streaming events
+- `[Monitor]` - Order monitoring events
 
 ---
 
@@ -442,14 +442,86 @@ persistent outages or rate limiting. This is an E*TRADE infrastructure issue.
 
 ---
 
+### Issue 22: Page Hangs on Railway (FIXED in v1.7.0)
+
+**Symptoms:**
+- Page loads once, then all subsequent requests hang
+- Railway logs show `Using worker: sync`
+
+**Root Cause:**
+SSE endpoint (`GET /api/events`) blocks the single gunicorn sync worker. No other requests can be served.
+
+**Solution (v1.7.0):**
+1. Use `gunicorn.conf.py` config file with `worker_class = "gevent"`
+2. CLI flags in Procfile/nixpacks.toml were ignored by Railway
+3. Config file approach matches working Alpaca project
+4. Verify in deploy logs: must show `Using worker: gevent`
+
+**If it happens again:**
+- Check Railway deploy logs for `Using worker: sync` vs `Using worker: gevent`
+- Ensure `gunicorn.conf.py` exists and sets `worker_class = "gevent"`
+- Ensure `Procfile` references `-c gunicorn.conf.py`
+- Cross-reference `~/Projects/Alpaca/gunicorn.conf.py`
+
+---
+
+### Issue 23: Quote Watch Thread Churn (FIXED in v1.7.0)
+
+**Symptoms:**
+- Railway logs show rapid "[QuoteWatch] Stopped / Starting / Stopped" cycle
+- Quote streaming not working
+
+**Root Cause:**
+`start_quote_watch()` was stopping and restarting threads even when watching the same symbol, causing thread churn.
+
+**Solution:**
+Added idempotency check — if same symbol is already being watched, return immediately.
+
+---
+
+### Issue 24: Order Status Shows CANCEL_REQUESTED After Cancel (FIXED in v1.7.0)
+
+**Symptoms:**
+- Order cancelled successfully on E*TRADE
+- UI orders panel shows `CANCEL_REQUESTED` instead of `CANCELLED`
+- Status card shows "Fill timeout (15s). Cancelling order..."
+
+**Root Cause:**
+Two issues:
+1. `timeout` SSE event disconnected SSE before `cancelled` event arrived
+2. `loadOrders()` ran immediately but E*TRADE hadn't processed cancel yet
+
+**Solution:**
+1. `timeout` event keeps SSE open (doesn't disconnect)
+2. `cancelled` event triggers orders refresh with 2s delay
+
+---
+
+### Issue 25: OAuth "Session expired" Error (FIXED in v1.7.0)
+
+**Symptoms:**
+- Clicking "Accept" on E*TRADE auth page redirects to error
+- URL shows `?error=Session+expired.+Please+try+again.`
+
+**Root Cause:**
+E*TRADE now redirects to callback URL instead of showing OOB verification code page. The server wasn't handling the callback.
+
+**Solution:**
+1. Added `GET /api/auth/callback` handler
+2. Request tokens stored in Redis for cross-process lookup
+3. Token URL-encoded in authorize URL (contains `/`, `+`, `=`)
+
+---
+
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `server.py` | Flask web server, API endpoints, trailing stop logic |
+| `server.py` | Flask web server, API endpoints, SSE |
 | `etrade_client.py` | E*TRADE API wrapper, OAuth, order building |
+| `order_monitor.py` | Server-side order monitoring + quote streaming |
 | `trailing_stop_manager.py` | Trailing stop lifecycle management |
-| `bracket_manager.py` | OLD - bracket order (kept for rollback) |
+| `gunicorn.conf.py` | Gunicorn config (gevent worker, CRITICAL) |
 | `token_manager.py` | Redis token storage |
 | `config.py` | Credentials and configuration |
 | `static/js/app.js` | Frontend logic, fill & trailing stop monitoring |
@@ -554,26 +626,52 @@ railway logs --tail 50 | grep -i redis
 
 ## Pending Items
 
-### 1. E*TRADE Callback URL Registration
-**Status:** Waiting on E*TRADE support
-**Action:** Contact E*TRADE to register callback URL
-**Callback URL:** `https://web-production-9f73cd.up.railway.app/api/auth/callback`
-**API Key:** `353ce1949c42c71cec4785343aa36539`
-
-### 2. Server-Side Trailing Stop Monitoring
-**Status:** Future enhancement
-**Goal:** Move trailing stop monitoring to server-side (survives browser close)
-**Implementation:** Background task with Redis state persistence
-
-### 3. E*TRADE API 500 Error Investigation
-**Status:** Ongoing issue
+### 1. E*TRADE API 500 Error Investigation
+**Status:** Ongoing issue (mitigated)
 **Problem:** E*TRADE API frequently returns 500 errors ("service not currently available")
-**Mitigation:** Exponential backoff implemented (v1.5.2)
+**Mitigation:** Server-side retries with user-friendly "Waiting for fill..." messages
 **Possible causes:** Rate limiting, API instability, account-specific issues
+
+### Completed Items (v1.7.0)
+- ~~E*TRADE Callback URL Registration~~ → Working via callback handler
+- ~~Server-Side Trailing Stop Monitoring~~ → Implemented in `order_monitor.py`
+- ~~Live Quote Streaming~~ → Implemented via Watch button + SSE
 
 ---
 
 ## Session History
+
+### 2026-03-05 Session (Server-Side Monitoring + SSE)
+
+**Issues Fixed:**
+1. Tested E*TRADE CometD/Bayeux streaming API → confirmed dead (all 6 endpoints)
+2. Implemented Plan B: server-side REST polling + SSE push to frontend
+3. Fixed E*TRADE OAuth flow (now redirects to callback instead of OOB code page)
+4. Fixed page hanging on Railway (sync worker blocking on SSE)
+5. Fixed quote watch thread churn (idempotency check)
+6. Fixed cancel status not updating (SSE disconnect timing)
+7. Fixed misleading "API error" status messages
+
+**Key Discoveries:**
+- Railway ignores CLI flags in Procfile/nixpacks.toml for worker class — must use `gunicorn.conf.py` config file
+- E*TRADE CometD streaming API is dead — all endpoints return 400 or DNS failure
+- E*TRADE now redirects to callback URL after auth (no more OOB code page)
+- Request tokens must be URL-encoded in authorize URL (contain `/`, `+`, `=`)
+- Local development uses port 5001 (port 5000 blocked by macOS AirPlay)
+
+**New Files Created:**
+- `order_monitor.py` - Server-side order monitoring + quote streaming
+- `gunicorn.conf.py` - Gunicorn configuration (gevent worker)
+- `nixpacks.toml` - Railway build config
+- `test_streaming.py` - CometD feasibility test
+
+**New API Endpoints:**
+- `GET /api/events` - SSE endpoint
+- `POST /api/quote/<symbol>/watch` - Start quote streaming
+- `DELETE /api/quote/watch` - Stop quote streaming
+- `GET /api/auth/callback` - OAuth callback handler
+
+---
 
 ### 2026-02-20 Session (Backoff Fix)
 

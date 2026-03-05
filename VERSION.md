@@ -1,10 +1,9 @@
 # E*TRADE Trading System - Version History
 
-## Current Version: v1.6.2
+## Current Version: v1.7.0
 
-**Status: WORKING - Premium UI Design**
-**Commit:** (pending)
-**Date:** 2026-02-23
+**Status: WORKING - Server-Side Monitoring + Live Quotes**
+**Date:** 2026-03-05
 **Deployed At:** https://web-production-9f73cd.up.railway.app
 **Environment:** PRODUCTION (real trading)
 **Timezone:** All times in **CST (Central Standard Time)** unless otherwise noted
@@ -15,22 +14,24 @@
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| OAuth 1.0a Authentication | ✅ WORKING | Sandbox/Production |
+| OAuth 1.0a Authentication | ✅ WORKING | Callback-based flow via Railway |
 | Account List | ✅ WORKING | Shows all accounts |
 | Account Balance | ✅ WORKING | Net value, cash, buying power |
 | Portfolio Positions | ✅ WORKING | Shows holdings with P&L |
-| Market Quotes | ✅ WORKING | Real quotes in production |
+| Market Quotes | ✅ WORKING | Real NBBO quotes in production |
+| **Live Quote Streaming** | ✅ WORKING | v1.7.0 - Watch button, SSE push every 3s |
 | Order Preview | ✅ WORKING | Preview before place |
 | Order Placement | ✅ WORKING | FIXED 2026-02-18 |
 | Profit Target (Offset) | ✅ WORKING | $ or % offset from fill price |
-| Auto Fill Checking | ✅ WORKING | Polls every 1 second |
+| **Server-Side Fill Monitoring** | ✅ WORKING | v1.7.0 - Survives browser close |
 | Auto Cancel on Timeout | ✅ WORKING | Cancel if not filled within timeout |
 | STOP_LIMIT Orders | ✅ WORKING | Stop price + limit price |
 | **Confirmation Stop Limit** | ✅ WORKING | v1.5.0 - Confirmation-based with guaranteed profit |
 | **Trailing Stop Limit ($)** | ✅ WORKING | v1.5.9 - TRAILING_STOP_CNST with trigger + limit |
-| **Exit Strategy Dropdown** | ✅ WORKING | v1.5.7 - None, Profit Target, Confirmation Stop Limit, Trailing Stop Limit |
-| **Robust Fill Detection** | ✅ WORKING | v1.6.0 - API errors don't count toward timeout |
-| **API Error Handling** | ✅ WORKING | v1.5.1 - Handles E*TRADE 500 errors gracefully |
+| **Exit Strategy Dropdown** | ✅ WORKING | v1.5.7 - None, Profit Target, Confirmation Stop, TSL |
+| **SSE Real-Time Updates** | ✅ WORKING | v1.7.0 - Push events replace browser polling |
+| **Gevent Concurrent Worker** | ✅ WORKING | v1.7.0 - via gunicorn.conf.py |
+| **API Error Handling** | ✅ WORKING | User-friendly messages, server-side logging |
 | **Premium UI** | ✅ WORKING | v1.5.4 - Terminal Luxe design |
 | Redis Token Storage | ✅ WORKING | Using Redis-Y5_F service |
 
@@ -50,6 +51,76 @@ Order
 ```
 
 All fill detection code must iterate through `OrderDetail[].Instrument[]` to check fill status.
+
+---
+
+## v1.7.0 - Server-Side Monitoring + SSE + Live Quotes (2026-03-05)
+
+### Major Changes:
+
+**1. Server-Side Order Monitoring (`order_monitor.py`)**
+- Background threads monitor order fills and place exit orders server-side
+- Survives browser close - no longer dependent on frontend polling
+- `OrderMonitor` singleton class with thread-safe SSE event distribution
+- Monitors: profit targets, confirmation stops, trailing stop limits
+- Helper methods: `_check_order_filled()`, `_calc_profit_price()`, `_place_exit_limit_order()`
+
+**2. Server-Sent Events (SSE)**
+- `GET /api/events` - long-lived SSE endpoint for real-time push updates
+- Events: quote updates, fill notifications, status messages, cancel confirmations
+- Frontend `connectSSE()` / `disconnectSSE()` manages EventSource lifecycle
+- SSE connects on demand (during monitoring or quote watch), not on page load
+
+**3. Live Quote Streaming**
+- "Watch" button in quote panel starts polling E*TRADE every 3s
+- NBBO bid/ask/last/volume pushed to frontend via SSE
+- Idempotent: re-clicking Watch for same symbol is a no-op (prevents thread churn)
+- Symbol change auto-stops current watch
+- `POST /api/quote/SYMBOL/watch` and `DELETE /api/quote/watch` endpoints
+
+**4. OAuth Callback Flow Fix**
+- E*TRADE now redirects to callback URL instead of showing OOB code page
+- Request tokens stored in Redis for cross-process callback lookup
+- Token URL-encoded in authorize URL (contains `/`, `+`, `=`)
+- `GET /api/auth/callback` handles the redirect automatically
+
+**5. Gunicorn Gevent Worker**
+- `gunicorn.conf.py` config file (CLI flags were ignored by Railway)
+- `worker_class = "gevent"` for concurrent SSE + HTTP connections
+- Single worker (`workers = 1`) for singleton OrderMonitor
+- Matches pattern from working Alpaca project
+
+**6. UI/UX Fixes**
+- Cancel status: `timeout` event keeps SSE open, waits for `cancelled` event
+- Orders refresh delayed 2s after cancel (lets E*TRADE process)
+- API errors shown as "Waiting for fill..." not "API error, retrying..."
+
+### New Files:
+- `order_monitor.py` - Server-side order monitoring + quote streaming
+- `gunicorn.conf.py` - Gunicorn configuration (gevent, single worker)
+- `nixpacks.toml` - Railway build config
+- `test_streaming.py` - CometD/Bayeux feasibility test (confirmed dead)
+
+### New/Modified API Endpoints:
+- `GET /api/events` - SSE endpoint for real-time events
+- `POST /api/quote/<symbol>/watch` - Start live quote streaming
+- `DELETE /api/quote/watch` - Stop live quote streaming
+- `GET /api/auth/callback` - OAuth callback handler
+
+### Files Changed:
+- `server.py` - SSE endpoint, quote watch endpoints, callback auth, monitor wiring
+- `etrade_client.py` - URL-encoded token in authorize URL
+- `static/js/app.js` - SSE client, Watch button, replaced polling with SSE events
+- `templates/index.html` - Added Watch button
+- `static/css/style-luxe.css` - Added `.btn-active` style
+- `Procfile` - Simplified to use gunicorn.conf.py
+- `requirements.txt` - Added gevent, aiocometd, aiohttp
+
+### E*TRADE Streaming API Investigation:
+- Tested CometD/Bayeux protocol against 6 E*TRADE endpoints
+- All returned 400 (Bad Request) or DNS failures
+- Conclusion: E*TRADE streaming API is dead/deprecated
+- Implemented Plan B: server-side REST polling + SSE push
 
 ---
 
@@ -417,7 +488,8 @@ When price hits $102:
 
 | Version | Date | Status | Key Changes |
 |---------|------|--------|-------------|
-| v1.6.2 | 2026-02-23 | ✅ CURRENT | UI readability fix, fill detection consistency check |
+| v1.7.0 | 2026-03-05 | ✅ CURRENT | Server-side monitoring, SSE, live quotes, gevent worker |
+| v1.6.2 | 2026-02-23 | Working | UI readability fix, fill detection consistency check |
 | v1.6.1 | 2026-02-23 | Working | Fixed TSL fill detection - use Instrument level |
 | v1.6.0 | 2026-02-23 | Working | Robust fill detection - API errors don't count toward timeout |
 | v1.5.9 | 2026-02-23 | Working | Trailing Stop Limit with trigger offset |
@@ -521,24 +593,21 @@ railway variables
 ## Known Limitations
 
 1. **Extended Hours Trading**: Market orders not supported - must use LIMIT orders
-2. **Callback OAuth**: NOT registered - using manual verification code flow
-3. **Trailing Stop Monitoring**: Frontend-based, stops if browser is closed
-4. **Confirmation Timeout**: If price doesn't reach trigger, position remains open
-5. **No OCO Orders**: E*TRADE API doesn't support One-Cancels-Other orders
-6. **E*TRADE Orders API**: Frequently returns 500 errors - may be rate limiting or API instability
+2. **Confirmation Timeout**: If price doesn't reach trigger, position remains open
+3. **No OCO Orders**: E*TRADE API doesn't support One-Cancels-Other orders
+4. **E*TRADE Orders API**: Frequently returns 500 errors - handled with retries
+5. **Single Worker**: Must use 1 gunicorn worker for singleton OrderMonitor
+6. **CometD Streaming Dead**: E*TRADE's CometD/Bayeux API is dead - using REST polling + SSE instead
+7. **No Automated Tests**: Test manually via UI
 
 ---
 
-## Callback OAuth Status
+## OAuth Callback Status
 
-**Status:** NOT REGISTERED
+**Status:** WORKING (v1.7.0)
 
-E*TRADE has not activated the callback URL. Test with:
-```bash
-ETRADE_USE_SANDBOX=false python test_callback_oauth.py
-```
-
-See `CALLBACK_OAUTH_RESEARCH.md` for details.
+E*TRADE redirects to callback URL after authorization. Request tokens stored in Redis for cross-process lookup.
+- Callback URL: `https://web-production-9f73cd.up.railway.app/api/auth/callback`
 
 ---
 
@@ -571,26 +640,30 @@ git push origin main --force
 
 ```
 etrade/
-├── server.py                 # Flask web server, API endpoints
+├── server.py                 # Flask web server, API endpoints, SSE
 ├── etrade_client.py          # E*TRADE API wrapper, OAuth, orders
-├── trailing_stop_manager.py  # Trailing stop lifecycle management (NEW)
-├── bracket_manager.py        # OLD - bracket order (kept for rollback)
+├── order_monitor.py          # Server-side order monitoring + quote streaming (v1.7.0)
+├── trailing_stop_manager.py  # Trailing stop lifecycle management
 ├── token_manager.py          # OAuth token storage (Redis)
 ├── config.py                 # Credentials and configuration
-├── static/
-│   ├── css/style.css         # Styles (original)
-│   ├── css/style-luxe.css    # Premium Terminal Luxe design (CURRENT)
-│   └── js/app.js             # Application logic
-├── templates/
-│   └── index.html            # Trading UI
+├── gunicorn.conf.py          # Gunicorn config (gevent worker, CRITICAL for SSE)
+├── Procfile                  # Railway start command
+├── nixpacks.toml             # Railway build config
 ├── requirements.txt          # Python dependencies
+├── static/
+│   ├── css/style.css         # Styles (original backup)
+│   ├── css/style-luxe.css    # Premium Terminal Luxe design (CURRENT)
+│   └── js/app.js             # Application logic, SSE client
+├── templates/
+│   └── index.html            # Trading UI (with Watch button)
+├── bracket_manager.py        # OLD - bracket order (kept for rollback)
+├── test_streaming.py         # CometD/Bayeux feasibility test (dead)
+├── test_callback_oauth.py    # Test script for callback OAuth
 ├── VERSION.md                # This file
 ├── README.md                 # System overview
+├── CLAUDE.md                 # Claude session context
 ├── TROUBLESHOOTING.md        # Debug guide
-├── ETRADE_API_REFERENCE.md   # API documentation
-├── CALLBACK_OAUTH_RESEARCH.md # OAuth callback research
-├── CALLBACK_URL_STATUS.md    # Callback registration status
-└── test_callback_oauth.py    # Test script for callback OAuth
+└── ETRADE_API_REFERENCE.md   # API documentation
 ```
 
 ---
