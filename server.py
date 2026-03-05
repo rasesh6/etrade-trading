@@ -7,11 +7,12 @@ import os
 import json
 import logging
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response
 from config import SECRET_KEY, USE_SANDBOX
 from etrade_client import ETradeClient
 from token_manager import get_token_manager
 from trailing_stop_manager import get_trailing_stop_manager, PendingTrailingStop, TrailingStopState
+from order_monitor import get_order_monitor
 
 # Configure logging
 logging.basicConfig(
@@ -288,6 +289,42 @@ def logout():
         'success': True,
         'message': 'Logged out successfully'
     })
+
+
+# ==================== SSE (Server-Sent Events) ====================
+
+@app.route('/api/events')
+def sse_events():
+    """
+    SSE endpoint for real-time order monitoring updates.
+    Browser connects once and receives push events instead of polling.
+    """
+    monitor = get_order_monitor()
+
+    def generate():
+        q = monitor.add_sse_client()
+        try:
+            while True:
+                try:
+                    event = q.get(timeout=30)
+                    yield f"data: {json.dumps(event)}\n\n"
+                except Exception:
+                    # Send keepalive to prevent connection timeout
+                    yield ": keepalive\n\n"
+        except GeneratorExit:
+            pass
+        finally:
+            monitor.remove_sse_client(q)
+
+    return Response(
+        generate(),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+            'Connection': 'keep-alive'
+        }
+    )
 
 
 # ==================== ACCOUNT API ====================
@@ -626,6 +663,23 @@ def place_order():
             }
             logger.info(f"Stored pending profit order for order_id={order_id}, offset={profit_offset} ({profit_offset_type})")
 
+            # Start server-side monitoring
+            monitor = get_order_monitor()
+            monitor.monitor_profit_target(
+                order_id,
+                {
+                    'symbol': symbol,
+                    'quantity': quantity,
+                    'profit_offset_type': profit_offset_type,
+                    'profit_offset': float(profit_offset),
+                    'account_id_key': account_id_key,
+                    'opening_side': side,
+                    'fill_timeout': fill_timeout
+                },
+                _get_authenticated_client,
+                _pending_profit_orders
+            )
+
         # If trailing stop is enabled, create pending trailing stop
         trailing_stop_enabled = data.get('trailing_stop_enabled', False)
         trailing_stop_response = None
@@ -665,6 +719,19 @@ def place_order():
             }
             logger.info(f"Created trailing stop for order {order_id}: trigger {trailing_stop.trigger_offset}({trailing_stop.trigger_type}), "
                        f"stop {trailing_stop.stop_offset}({trailing_stop.stop_type})")
+
+            # Start server-side monitoring
+            monitor = get_order_monitor()
+            monitor.monitor_trailing_stop(
+                order_id,
+                {
+                    'account_id_key': account_id_key,
+                    'fill_timeout': trailing_stop.fill_timeout,
+                    'confirmation_timeout': trailing_stop.confirmation_timeout
+                },
+                _get_authenticated_client,
+                trailing_stop_manager
+            )
 
         # If trailing stop limit is enabled, create pending trailing stop limit
         trailing_stop_limit_enabled = data.get('trailing_stop_limit_enabled', False)
@@ -708,6 +775,19 @@ def place_order():
                 'trigger_timeout': tsl_trigger_timeout
             }
             logger.info(f"Created trailing stop limit for order {order_id}: trigger={tsl_trigger_offset}({tsl_trigger_type}), trail={tsl_trail_amount}({tsl_trail_type})")
+
+            # Start server-side monitoring
+            monitor = get_order_monitor()
+            monitor.monitor_tsl(
+                order_id,
+                {
+                    'account_id_key': account_id_key,
+                    'fill_timeout': tsl_fill_timeout,
+                    'trigger_timeout': tsl_trigger_timeout
+                },
+                _get_authenticated_client,
+                _pending_trailing_stop_limit_orders
+            )
 
         return jsonify({
             'success': True,
@@ -1930,4 +2010,4 @@ if __name__ == '__main__':
     logger.info(f"Starting E*TRADE Trading System on port {port}")
     logger.info(f"Environment: {'SANDBOX' if USE_SANDBOX else 'PRODUCTION'}")
 
-    app.run(host='0.0.0.0', port=port, debug=debug)
+    app.run(host='0.0.0.0', port=port, debug=debug, threaded=True)

@@ -8,6 +8,8 @@ let currentPriceSource = 'manual';
 let currentAccountIdKey = null;
 let quoteData = null;
 let fillCheckInterval = null;
+let eventSource = null;
+let activeMonitorOrderId = null;
 
 // ==================== INITIALIZATION ====================
 
@@ -15,7 +17,170 @@ document.addEventListener('DOMContentLoaded', () => {
     checkAuthStatus();
     setupEventListeners();
     updateOrderSummary();
+    connectSSE();
 });
+
+// ==================== SSE (Server-Sent Events) ====================
+
+function connectSSE() {
+    if (eventSource) {
+        eventSource.close();
+    }
+
+    eventSource = new EventSource('/api/events');
+
+    eventSource.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        handleSSEEvent(data);
+    };
+
+    eventSource.onerror = function() {
+        // Auto-reconnect is built into EventSource
+        console.log('SSE connection error, will auto-reconnect...');
+    };
+}
+
+function handleSSEEvent(data) {
+    const orderId = data.order_id;
+    console.log('SSE event:', data);
+
+    // Only update UI for the order we're actively monitoring
+    if (activeMonitorOrderId && String(orderId) !== String(activeMonitorOrderId)) {
+        return;
+    }
+
+    switch (data.type) {
+        // Profit target events
+        case 'monitoring_started':
+            activeMonitorOrderId = orderId;
+            const statusCard = document.getElementById('order-status-card');
+            statusCard.style.display = 'block';
+            updateOrderStatus(`Waiting for order to fill... (server monitoring)`);
+            break;
+
+        case 'status':
+            updateOrderStatus(data.message);
+            break;
+
+        case 'filled':
+            if (data.profit_order_placed) {
+                updateOrderStatus(
+                    `Order filled @ ${formatCurrency(data.fill_price)}. Profit order placed @ ${formatCurrency(data.profit_price)}`,
+                    'success'
+                );
+            } else if (data.error) {
+                updateOrderStatus(
+                    `Order filled @ ${formatCurrency(data.fill_price)}. Profit order FAILED: ${data.error}`,
+                    'error'
+                );
+            } else {
+                updateOrderStatus(`Order filled @ ${formatCurrency(data.fill_price)}`, 'success');
+            }
+            loadOrders(currentAccountIdKey);
+            loadPositions(currentAccountIdKey);
+            activeMonitorOrderId = null;
+            break;
+
+        case 'timeout':
+        case 'cancelled':
+            updateOrderStatus(data.message, 'error');
+            loadOrders(currentAccountIdKey);
+            activeMonitorOrderId = null;
+            break;
+
+        case 'error':
+            updateOrderStatus(data.message, 'error');
+            loadOrders(currentAccountIdKey);
+            activeMonitorOrderId = null;
+            break;
+
+        // Trailing stop events
+        case 'ts_status':
+            if (data.state === 'waiting_fill') {
+                updateTrailingStopStatus('waiting_fill', data.message);
+            } else if (data.state === 'waiting_confirmation') {
+                if (data.current_price) {
+                    updateTrailingStopStatus('waiting_confirmation',
+                        `Waiting for trigger... ${formatCurrency(data.current_price)} -> ${formatCurrency(data.trigger_price)} (${data.elapsed || 0}s)`
+                    );
+                } else {
+                    updateTrailingStopStatus('waiting_confirmation', data.message);
+                }
+            }
+            break;
+
+        case 'ts_filled':
+            updateTrailingStopStatus('waiting_confirmation',
+                `Filled @ ${formatCurrency(data.fill_price)}. Waiting for trigger @ ${formatCurrency(data.trigger_price)}...`
+            );
+            loadOrders(currentAccountIdKey);
+            break;
+
+        case 'ts_stop_placed':
+            updateTrailingStopStatus('stop_active',
+                `STOP LIMIT placed @ ${formatCurrency(data.stop_price)}`
+            );
+            loadOrders(currentAccountIdKey);
+            loadPositions(currentAccountIdKey);
+            activeMonitorOrderId = null;
+            break;
+
+        case 'ts_timeout':
+            updateTrailingStopStatus('timeout', data.message);
+            loadOrders(currentAccountIdKey);
+            activeMonitorOrderId = null;
+            break;
+
+        case 'ts_error':
+            updateTrailingStopStatus('error', data.message);
+            loadOrders(currentAccountIdKey);
+            activeMonitorOrderId = null;
+            break;
+
+        // TSL events
+        case 'tsl_status':
+            if (data.state === 'waiting_fill') {
+                updateTrailingStopLimitStatus('waiting_fill', data.message);
+            } else if (data.state === 'waiting_trigger') {
+                if (data.current_price) {
+                    updateTrailingStopLimitStatus('waiting_trigger',
+                        `Waiting for trigger... ${formatCurrency(data.current_price)} -> ${formatCurrency(data.trigger_price)} (${data.elapsed || 0}/${data.timeout || 0}s)`
+                    );
+                } else {
+                    updateTrailingStopLimitStatus('waiting_trigger', data.message);
+                }
+            }
+            break;
+
+        case 'tsl_filled':
+            updateTrailingStopLimitStatus('waiting_trigger',
+                `Filled @ ${formatCurrency(data.fill_price)}. Waiting for trigger @ ${formatCurrency(data.trigger_price)}...`
+            );
+            loadOrders(currentAccountIdKey);
+            break;
+
+        case 'tsl_stop_placed':
+            updateTrailingStopLimitStatus('stop_active',
+                `Trigger hit! Trailing stop placed. Trail: ${formatCurrency(data.trail_amount)}`
+            );
+            loadOrders(currentAccountIdKey);
+            loadPositions(currentAccountIdKey);
+            activeMonitorOrderId = null;
+            break;
+
+        case 'tsl_timeout':
+            updateTrailingStopLimitStatus('timeout', data.message);
+            loadOrders(currentAccountIdKey);
+            activeMonitorOrderId = null;
+            break;
+
+        case 'tsl_error':
+            updateTrailingStopLimitStatus('error', data.message);
+            loadOrders(currentAccountIdKey);
+            activeMonitorOrderId = null;
+            break;
+    }
+}
 
 function setupEventListeners() {
     // Order form inputs
@@ -679,37 +844,13 @@ async function placeOrder() {
             showResponse('success', 'Order Placed', data.order);
             loadOrders(currentAccountIdKey);  // Refresh orders list
 
-            // If confirmation stop enabled, start monitoring
-            if (enableConfirmationStop && data.order.order_id && data.order.trailing_stop) {
-                startTrailingStopMonitoring(
-                    data.order.order_id,
-                    symbol,
-                    quantity,
-                    currentSide,
-                    data.order.trailing_stop
-                );
-            }
-            // If trailing stop limit enabled, start monitoring
-            else if (enableTrailingStopLimit && data.order.order_id && data.order.trailing_stop_limit) {
-                startTrailingStopLimitMonitoring(
-                    data.order.order_id,
-                    symbol,
-                    quantity,
-                    currentSide,
-                    data.order.trailing_stop_limit
-                );
-            }
-            // If simple profit target enabled, start standard monitoring
-            else if (enableProfitTarget && data.order.order_id) {
-                startOrderMonitoring(
-                    data.order.order_id,
-                    symbol,
-                    quantity,
-                    currentSide,
-                    profitOffsetType,
-                    profitOffset,
-                    fillTimeout
-                );
+            // Server-side monitoring handles fill detection via SSE.
+            // Just set activeMonitorOrderId so SSE events update the UI.
+            if (data.order.order_id && (enableConfirmationStop || enableTrailingStopLimit || enableProfitTarget)) {
+                activeMonitorOrderId = data.order.order_id;
+                const statusCard = document.getElementById('order-status-card');
+                statusCard.style.display = 'block';
+                updateOrderStatus('Server monitoring started...');
             }
         } else {
             showResponse('error', 'Order Failed', { error: data.error });
