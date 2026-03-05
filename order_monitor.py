@@ -84,9 +84,15 @@ class OrderMonitor:
             get_client_fn: Callable returning authenticated ETradeClient
             interval: Seconds between polls (default 3)
         """
-        key = f"quote:{symbol.upper()}"
+        symbol = symbol.upper()
+        key = f"quote:{symbol}"
         with self._lock:
-            # Stop existing watch for any symbol
+            # If already watching this exact symbol, don't restart
+            if key in self._monitors and not self._monitors[key].get('stop'):
+                logger.info(f"[QuoteWatch] Already watching {symbol}, skipping restart")
+                return
+
+            # Stop any existing quote watch (different symbol)
             for k in list(self._monitors.keys()):
                 if k.startswith('quote:'):
                     self._monitors[k]['stop'] = True
@@ -95,7 +101,6 @@ class OrderMonitor:
             stop_flag = {'stop': False}
             self._monitors[key] = stop_flag
 
-        symbol = symbol.upper()
         logger.info(f"[QuoteWatch] Starting quote stream for {symbol}")
 
         def run():
