@@ -1,6 +1,6 @@
 # E*TRADE Trading System - Version History
 
-## Current Version: v1.7.0
+## Current Version: v1.7.1
 
 **Status: WORKING - Server-Side Monitoring + Live Quotes**
 **Date:** 2026-03-05
@@ -27,7 +27,7 @@
 | Auto Cancel on Timeout | ✅ WORKING | Cancel if not filled within timeout |
 | STOP_LIMIT Orders | ✅ WORKING | Stop price + limit price |
 | **Confirmation Stop Limit** | ✅ WORKING | v1.5.0 - Confirmation-based with guaranteed profit |
-| **Trailing Stop Limit ($)** | ✅ WORKING | v1.5.9 - TRAILING_STOP_CNST with trigger + limit |
+| **Trailing Stop Limit ($)** | ✅ WORKING | v1.7.1 - TRAILING_STOP_CNST + configurable limit offset |
 | **Exit Strategy Dropdown** | ✅ WORKING | v1.5.7 - None, Profit Target, Confirmation Stop, TSL |
 | **SSE Real-Time Updates** | ✅ WORKING | v1.7.0 - Push events replace browser polling |
 | **Gevent Concurrent Worker** | ✅ WORKING | v1.7.0 - via gunicorn.conf.py |
@@ -51,6 +51,41 @@ Order
 ```
 
 All fill detection code must iterate through `OrderDetail[].Instrument[]` to check fill status.
+
+---
+
+## v1.7.1 - TSL Limit Offset + Cancel Reliability (2026-03-05)
+
+### Trailing Stop Limit Improvements:
+
+**Configurable Limit Offset (`stopLimitPrice`)**
+- The TSL order uses `TRAILING_STOP_CNST` + `stopLimitPrice` (trailing stop LIMIT, not market)
+- `stopPrice` = trail amount (how far stop trails behind peak price)
+- `stopLimitPrice` = limit offset (max slippage from stop trigger price)
+- Was hardcoded to $0.01; now configurable via "Limit Offset" field in UI
+- Default: $0.01 (tightest execution)
+
+**TSL API-Error Timeout Cancel Fix**
+- When E*TRADE API returned 500 errors throughout the entire fill timeout, the monitor
+  emitted a timeout message and broke **without cancelling the order**
+- Now both timeout paths (normal and API-error) call `_cancel_and_recheck()`
+- If the order filled during cancel attempt, transitions to trigger-waiting phase
+
+### Cancel Reliability (All Monitor Types):
+
+Comprehensive review of timeout/cancel flow across all three monitor types:
+
+| Monitor | Normal timeout | API-error timeout | Frontend refresh |
+|---------|---------------|-------------------|-----------------|
+| Profit target | ✅ cancels, timeout→cancelled events | ✅ loop exits, cancels | ✅ 2s delay |
+| Confirmation stop | ✅ cancels via _cancel_and_recheck | ✅ retries (no elapsed increment) | ✅ 2s delay (NEW) |
+| TSL | ✅ cancels via _cancel_and_recheck | ✅ **NOW cancels** (was broken) | ✅ 2s delay (NEW) |
+
+### Files Changed:
+- `order_monitor.py` - TSL API-error timeout now cancels; configurable limit_offset
+- `server.py` - Pass tsl_limit_offset from frontend to monitor config
+- `static/js/app.js` - Read limit offset field; 2s delay on ts_timeout/tsl_timeout refresh
+- `templates/index.html` - New "Limit Offset" field for TSL
 
 ---
 
@@ -488,7 +523,8 @@ When price hits $102:
 
 | Version | Date | Status | Key Changes |
 |---------|------|--------|-------------|
-| v1.7.0 | 2026-03-05 | ✅ CURRENT | Server-side monitoring, SSE, live quotes, gevent worker |
+| v1.7.1 | 2026-03-05 | ✅ CURRENT | TSL configurable limit offset, cancel reliability fix |
+| v1.7.0 | 2026-03-05 | Working | Server-side monitoring, SSE, live quotes, gevent worker |
 | v1.6.2 | 2026-02-23 | Working | UI readability fix, fill detection consistency check |
 | v1.6.1 | 2026-02-23 | Working | Fixed TSL fill detection - use Instrument level |
 | v1.6.0 | 2026-02-23 | Working | Robust fill detection - API errors don't count toward timeout |
@@ -543,7 +579,7 @@ E*TRADE requires the `<PreviewIds>` wrapper around `<previewId>`:
 E*TRADE API returns order IDs as **integers**. URL parameters are **strings**.
 Always convert to same type before comparison.
 
-### Trailing Stop Data Structure
+### Trailing Stop Data Structure (Confirmation Stop)
 
 ```python
 PendingTrailingStop:
@@ -556,6 +592,45 @@ PendingTrailingStop:
     stop_price: float     # Stop trigger price
     stop_limit_price: float  # Stop limit price
     state: TrailingStopState  # pending_fill, waiting_confirmation, stop_placed, etc.
+```
+
+### Trailing Stop Limit (TSL) Order Type
+
+E*TRADE `TRAILING_STOP_CNST` + `stopLimitPrice` = true trailing stop LIMIT order.
+
+```xml
+<Order>
+    <priceType>TRAILING_STOP_CNST</priceType>
+    <stopPrice>0.25</stopPrice>          <!-- Trail amount: stop trails $0.25 behind peak -->
+    <stopLimitPrice>0.01</stopLimitPrice> <!-- Limit offset: limit is $0.01 below stop -->
+    <orderTerm>GOOD_FOR_DAY</orderTerm>
+</Order>
+```
+
+- `stopPrice` = trail amount (how far stop trails behind peak price)
+- `stopLimitPrice` = limit offset (max slippage from stop trigger, default $0.01)
+- Without `stopLimitPrice`, it becomes a MARKET order when triggered (potential slippage)
+
+### TSL Config Dictionary (in-memory)
+
+```python
+_pending_trailing_stop_limit_orders[order_id] = {
+    'symbol': str,
+    'quantity': int,
+    'account_id_key': str,
+    'opening_side': str,          # BUY or SELL
+    'trigger_type': str,          # 'dollar' or 'percent'
+    'trigger_offset': float,      # e.g., 0.50
+    'trail_type': str,            # 'dollar' or 'percent'
+    'trail_amount': float,        # e.g., 0.25 → stopPrice
+    'limit_offset': float,        # e.g., 0.01 → stopLimitPrice
+    'trigger_timeout': int,       # seconds
+    'fill_timeout': int,          # seconds
+    'fill_price': float | None,
+    'trigger_price': float | None,
+    'stop_order_id': int | None,
+    'status': str,                # waiting_fill, waiting_trigger, stop_placed, error
+}
 ```
 
 ---

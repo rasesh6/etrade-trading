@@ -1,7 +1,7 @@
 # E*TRADE Trading System - Context for Claude Sessions
 
 > **Last Updated:** 2026-03-05
-> **Current Version:** v1.7.0
+> **Current Version:** v1.7.1
 
 ## Quick Start for New Sessions
 
@@ -94,6 +94,8 @@ A web-based E*TRADE trading interface with:
 4. **Trailing Stop Limit Orders** - Server monitors fill, waits for trigger, places trailing stop.
    - Monitoring: `order_monitor.py` → `monitor_tsl()`
    - SSE events: `tsl_status`, `tsl_filled`, `tsl_stop_placed`, `tsl_timeout`
+   - E*TRADE order type: `TRAILING_STOP_CNST` + `stopLimitPrice` (true trailing stop LIMIT, not market)
+   - UI fields: Trigger ($ or %), Trail (`stopPrice`), Limit Offset (`stopLimitPrice`, default $0.01)
 
 ## OAuth Flow
 
@@ -140,6 +142,13 @@ Changes pushed to `main` branch auto-deploy to Railway:
 - Build logs: `railway logs --build --tail 50`
 
 ## Recent Changes
+
+### v1.7.1 (2026-03-05)
+**Fixes: TSL limit offset + cancel reliability across all monitors**
+
+- **Configurable limit offset for TSL**: `stopLimitPrice` was hardcoded to $0.01. Now user can set via "Limit Offset" field (default $0.01). This is the max slippage from the trailing stop trigger price.
+- **TSL API-error timeout now cancels**: When E*TRADE API returned 500 errors throughout the fill timeout, the order was left open. Now it attempts cancel via `_cancel_and_recheck()`.
+- **Delayed order refresh on all timeouts**: `ts_timeout` and `tsl_timeout` now delay `loadOrders()` by 2s (matching profit target), giving E*TRADE time to process the cancel.
 
 ### v1.7.0 (2026-03-05)
 **Major: Server-side monitoring + SSE + Live quotes**

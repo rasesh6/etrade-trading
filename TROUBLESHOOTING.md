@@ -513,6 +513,36 @@ E*TRADE now redirects to callback URL instead of showing OOB verification code p
 
 ---
 
+### Issue 26: TSL Order Not Cancelled After Fill Timeout (FIXED in v1.7.1)
+
+**Symptoms:**
+- TSL order placed with limit far from market (won't fill)
+- E*TRADE API returns 500 errors during fill checks
+- Status shows "Fill timeout (API unavailable). Check E*TRADE."
+- Order remains OPEN on E*TRADE — not cancelled
+
+**Root Cause:**
+The TSL monitor had two timeout paths:
+1. **Normal path** (API works, order not filled) → properly called `_cancel_and_recheck()` ✅
+2. **API-error path** (all checks returned 500) → just emitted timeout and broke **without cancelling** ❌
+
+**Solution (v1.7.1):**
+API-error timeout path now also calls `_cancel_and_recheck()`. If the cancel reveals the order actually filled, it transitions to trigger-waiting phase.
+
+---
+
+### Issue 27: TSL stopLimitPrice Hardcoded (FIXED in v1.7.1)
+
+**Symptoms:**
+- TSL trailing stop order always used $0.01 limit offset regardless of stock price
+
+**Solution:**
+Added "Limit Offset" field to UI. Default $0.01. Passed as `stopLimitPrice` to E*TRADE.
+- `stopPrice` = trail amount (how far stop trails behind peak)
+- `stopLimitPrice` = limit offset (max slippage from stop trigger)
+
+---
+
 ## Key Files
 
 | File | Purpose |
@@ -641,9 +671,9 @@ railway logs --tail 50 | grep -i redis
 
 ## Session History
 
-### 2026-03-05 Session (Server-Side Monitoring + SSE)
+### 2026-03-05 Session (Server-Side Monitoring + SSE + TSL Fixes)
 
-**Issues Fixed:**
+**Issues Fixed (v1.7.0):**
 1. Tested E*TRADE CometD/Bayeux streaming API → confirmed dead (all 6 endpoints)
 2. Implemented Plan B: server-side REST polling + SSE push to frontend
 3. Fixed E*TRADE OAuth flow (now redirects to callback instead of OOB code page)
@@ -652,12 +682,19 @@ railway logs --tail 50 | grep -i redis
 6. Fixed cancel status not updating (SSE disconnect timing)
 7. Fixed misleading "API error" status messages
 
+**Issues Fixed (v1.7.1):**
+8. TSL `stopLimitPrice` hardcoded to $0.01 → now configurable via UI "Limit Offset" field
+9. TSL API-error timeout didn't cancel order → now calls `_cancel_and_recheck()`
+10. `ts_timeout` and `tsl_timeout` didn't delay `loadOrders()` → now 2s delay like profit target
+
 **Key Discoveries:**
 - Railway ignores CLI flags in Procfile/nixpacks.toml for worker class — must use `gunicorn.conf.py` config file
 - E*TRADE CometD streaming API is dead — all endpoints return 400 or DNS failure
 - E*TRADE now redirects to callback URL after auth (no more OOB code page)
 - Request tokens must be URL-encoded in authorize URL (contain `/`, `+`, `=`)
 - Local development uses port 5001 (port 5000 blocked by macOS AirPlay)
+- E*TRADE `TRAILING_STOP_CNST` + `stopLimitPrice` = trailing stop LIMIT order (not market)
+- `stopPrice` = trail amount, `stopLimitPrice` = limit offset from stop trigger
 
 **New Files Created:**
 - `order_monitor.py` - Server-side order monitoring + quote streaming
