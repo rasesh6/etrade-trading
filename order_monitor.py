@@ -759,6 +759,7 @@ class OrderMonitor:
                             closing_side = 'SELL' if tsl['opening_side'] in ['BUY', 'BUY_TO_COVER'] else 'BUY'
 
                             try:
+                                limit_offset = tsl.get('limit_offset', 0.01)
                                 stop_order_data = {
                                     'symbol': tsl['symbol'],
                                     'quantity': tsl['quantity'],
@@ -766,7 +767,7 @@ class OrderMonitor:
                                     'priceType': 'TRAILING_STOP_CNST',
                                     'orderTerm': 'GOOD_FOR_DAY',
                                     'stopPrice': str(trail_amount),
-                                    'stopLimitPrice': '0.01'
+                                    'stopLimitPrice': str(limit_offset)
                                 }
                                 preview = client.preview_order(tsl['account_id_key'], stop_order_data)
                                 result = client.place_order(

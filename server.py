@@ -766,6 +766,7 @@ def place_order():
             tsl_trigger_offset = float(data.get('tsl_trigger_offset', 0))
             tsl_trail_type = data.get('tsl_trail_type', 'dollar')
             tsl_trail_amount = float(data.get('tsl_trail_amount', 0))
+            tsl_limit_offset = float(data.get('tsl_limit_offset', 0.01))
             tsl_fill_timeout = int(data.get('fill_timeout', 15))
             tsl_trigger_timeout = int(data.get('tsl_trigger_timeout', 300))
 
@@ -781,6 +782,7 @@ def place_order():
                 # Trail settings (for the trailing stop order)
                 'trail_type': tsl_trail_type,
                 'trail_amount': tsl_trail_amount,
+                'limit_offset': tsl_limit_offset,
                 # State
                 'fill_timeout': tsl_fill_timeout,
                 'fill_price': None,
@@ -795,10 +797,11 @@ def place_order():
                 'trigger_offset': tsl_trigger_offset,
                 'trail_type': tsl_trail_type,
                 'trail_amount': tsl_trail_amount,
+                'limit_offset': tsl_limit_offset,
                 'fill_timeout': tsl_fill_timeout,
                 'trigger_timeout': tsl_trigger_timeout
             }
-            logger.info(f"Created trailing stop limit for order {order_id}: trigger={tsl_trigger_offset}({tsl_trigger_type}), trail={tsl_trail_amount}({tsl_trail_type})")
+            logger.info(f"Created trailing stop limit for order {order_id}: trigger={tsl_trigger_offset}({tsl_trigger_type}), trail={tsl_trail_amount}({tsl_trail_type}), limit_offset={tsl_limit_offset}")
 
             # Start server-side monitoring
             monitor = get_order_monitor()

@@ -876,6 +876,7 @@ async function placeOrder() {
     } else if (enableTrailingStopLimit) {
         const triggerOffset = parseFloat(document.getElementById('trailing-trigger-offset').value) || 0;
         const trailAmount = parseFloat(document.getElementById('trailing-amount').value) || 0;
+        const limitOffset = parseFloat(document.getElementById('trailing-limit-offset').value) || 0.01;
 
         if (triggerOffset <= 0) {
             alert('Please enter a valid trigger offset');
@@ -885,6 +886,10 @@ async function placeOrder() {
             alert('Please enter a valid trail amount');
             return;
         }
+        if (limitOffset <= 0) {
+            alert('Please enter a valid limit offset');
+            return;
+        }
 
         trailingStopParams = {
             trailing_stop_limit_enabled: true,
@@ -892,6 +897,7 @@ async function placeOrder() {
             tsl_trigger_offset: triggerOffset,
             tsl_trail_type: document.getElementById('trailing-amount-type').value,
             tsl_trail_amount: trailAmount,
+            tsl_limit_offset: limitOffset,
             fill_timeout: parseInt(document.getElementById('trailing-fill-timeout').value) || 15,
             tsl_trigger_timeout: parseInt(document.getElementById('trailing-trigger-timeout').value) || 300
         };

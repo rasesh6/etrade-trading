@@ -263,6 +263,13 @@
                                             <input type="number" id="trailing-amount" value="0.25" step="0.01" min="0.01">
                                         </div>
                                     </div>
+                                    <div class="form-group">
+                                        <label class="subsection-label">Limit Offset</label>
+                                        <div class="price-input">
+                                            <span>$</span>
+                                            <input type="number" id="trailing-limit-offset" value="0.01" step="0.01" min="0.01">
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                             <div class="form-row">
@@ -275,7 +282,7 @@
                                     <input type="number" id="trailing-trigger-timeout" value="300" min="30" max="3600">
                                 </div>
                             </div>
-                            <p class="strategy-desc">Wait for price trigger, then place TRAILING_STOP_CNST LIMIT that follows price.</p>
+                            <p class="strategy-desc">Wait for price trigger, then place trailing stop LIMIT. Trail = stop distance, Limit Offset = max slippage from stop.</p>
                         </div>
                     </div>
 
