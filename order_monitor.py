@@ -609,13 +609,57 @@ class OrderMonitor:
                                     'message': f'Waiting for fill... ({fill_elapsed}/{fill_timeout}s)'
                                 })
                                 if fill_elapsed >= fill_timeout:
+                                    # Try to cancel even though API was erroring
                                     self._emit({
-                                        'type': 'tsl_timeout',
+                                        'type': 'tsl_status',
                                         'order_id': order_id,
                                         'state': 'waiting_fill',
-                                        'message': f'Fill timeout (API unavailable). Check E*TRADE.'
+                                        'message': 'Timeout. Cancelling order...'
                                     })
-                                    break
+                                    try:
+                                        c = get_client_fn()
+                                        cancel_result = self._cancel_and_recheck(
+                                            c, config, order_id, get_client_fn
+                                        )
+                                        if cancel_result.get('filled'):
+                                            fill_price = cancel_result['fill_price']
+                                            trigger_type = tsl.get('trigger_type', 'dollar')
+                                            trigger_offset = tsl.get('trigger_offset', 0)
+                                            if trigger_type == 'dollar':
+                                                trigger_price = fill_price + trigger_offset
+                                            else:
+                                                trigger_price = fill_price * (1 + trigger_offset / 100)
+                                            trigger_price = round(trigger_price, 2)
+                                            tsl['fill_price'] = fill_price
+                                            tsl['trigger_price'] = trigger_price
+                                            tsl['status'] = 'waiting_trigger'
+                                            tsl['fill_time'] = datetime.utcnow()
+                                            state = 'waiting_trigger'
+                                            self._emit({
+                                                'type': 'tsl_filled',
+                                                'order_id': order_id,
+                                                'fill_price': fill_price,
+                                                'trigger_price': trigger_price
+                                            })
+                                            time.sleep(self.POLL_INTERVAL)
+                                            continue
+                                        else:
+                                            self._emit({
+                                                'type': 'tsl_timeout',
+                                                'order_id': order_id,
+                                                'state': 'waiting_fill',
+                                                'message': cancel_result.get('message',
+                                                    f'Order cancelled (not filled within {fill_timeout}s)')
+                                            })
+                                            break
+                                    except Exception:
+                                        self._emit({
+                                            'type': 'tsl_timeout',
+                                            'order_id': order_id,
+                                            'state': 'waiting_fill',
+                                            'message': f'Fill timeout (API unavailable). Check E*TRADE.'
+                                        })
+                                        break
                                 time.sleep(self.POLL_INTERVAL)
                                 continue
                             raise

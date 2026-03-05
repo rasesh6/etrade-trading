@@ -151,7 +151,7 @@ function handleSSEEvent(data) {
 
         case 'ts_timeout':
             updateTrailingStopStatus('timeout', data.message);
-            loadOrders(currentAccountIdKey);
+            setTimeout(() => loadOrders(currentAccountIdKey), 2000);
             activeMonitorOrderId = null;
             disconnectSSE();
             break;
@@ -197,7 +197,7 @@ function handleSSEEvent(data) {
 
         case 'tsl_timeout':
             updateTrailingStopLimitStatus('timeout', data.message);
-            loadOrders(currentAccountIdKey);
+            setTimeout(() => loadOrders(currentAccountIdKey), 2000);
             activeMonitorOrderId = null;
             disconnectSSE();
             break;
