@@ -6,6 +6,7 @@ A simple web-based trading interface for E*TRADE
 import os
 import json
 import logging
+import secrets
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response
 from config import SECRET_KEY, USE_SANDBOX
@@ -24,6 +25,26 @@ logger = logging.getLogger(__name__)
 # Initialize Flask app
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
+
+# Basic Auth protection (set AUTH_USERNAME and AUTH_PASSWORD env vars to enable)
+AUTH_USERNAME = os.environ.get('AUTH_USERNAME')
+AUTH_PASSWORD = os.environ.get('AUTH_PASSWORD')
+
+@app.before_request
+def require_basic_auth():
+    """Require HTTP Basic Auth when AUTH_USERNAME and AUTH_PASSWORD are set."""
+    if not AUTH_USERNAME or not AUTH_PASSWORD:
+        return  # No auth configured, allow all requests (local dev)
+    auth = request.authorization
+    if (auth
+            and auth.type == 'basic'
+            and secrets.compare_digest(auth.username, AUTH_USERNAME)
+            and secrets.compare_digest(auth.password, AUTH_PASSWORD)):
+        return  # Authenticated
+    return Response(
+        'Unauthorized', 401,
+        {'WWW-Authenticate': 'Basic realm="Trading System"'}
+    )
 
 # Store request tokens temporarily during auth flow
 _request_tokens = {}
