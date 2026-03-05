@@ -1,2 +1,2 @@
 [start]
-cmd = "gunicorn server:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 -k gthread --timeout 120"
+cmd = "gunicorn server:app --bind 0.0.0.0:$PORT --workers 1 --worker-class gevent --timeout 120"
