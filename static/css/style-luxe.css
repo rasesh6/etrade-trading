@@ -274,6 +274,7 @@ select {
 }
 
 .btn-success { background: var(--bull); color: white; }
+.btn-active { background: var(--bear); color: white; border-color: var(--bear); }
 .btn-danger { background: var(--bear); color: white; }
 .btn-small { font-size: 0.6875rem; padding: 4px 8px; }
 

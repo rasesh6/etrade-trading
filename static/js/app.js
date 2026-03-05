@@ -10,6 +10,7 @@ let quoteData = null;
 let fillCheckInterval = null;
 let eventSource = null;
 let activeMonitorOrderId = null;
+let watchingQuote = false;
 
 // ==================== INITIALIZATION ====================
 
@@ -49,6 +50,14 @@ function disconnectSSE() {
 function handleSSEEvent(data) {
     const orderId = data.order_id;
     console.log('SSE event:', data);
+
+    // Handle quote updates (no order_id)
+    if (data.type === 'quote') {
+        displayQuote(data, data.symbol);
+        quoteData = data;
+        quoteData.display_symbol = data.symbol;
+        return;
+    }
 
     // Only update UI for the order we're actively monitoring
     if (activeMonitorOrderId && String(orderId) !== String(activeMonitorOrderId)) {
@@ -210,10 +219,19 @@ function setupEventListeners() {
         }
     });
 
-    // Copy quote symbol to order symbol
+    // Copy quote symbol to order symbol + stop watch on symbol change
     document.getElementById('quote-symbol').addEventListener('input', function() {
         document.getElementById('order-symbol').value = this.value.toUpperCase();
         updateOrderSummary();
+        if (watchingQuote) {
+            // Stop current watch when symbol changes
+            fetch('/api/quote/watch', { method: 'DELETE' }).catch(() => {});
+            watchingQuote = false;
+            const btn = document.getElementById('watch-btn');
+            btn.textContent = 'Watch';
+            btn.classList.remove('btn-active');
+            disconnectSSE();
+        }
     });
 }
 
@@ -533,6 +551,51 @@ async function fetchQuote() {
     } catch (error) {
         console.error('Fetch quote failed:', error);
         alert('Failed to fetch quote: ' + error.message);
+    }
+}
+
+async function toggleWatch() {
+    const btn = document.getElementById('watch-btn');
+
+    if (watchingQuote) {
+        // Stop watching
+        try {
+            await fetch('/api/quote/watch', { method: 'DELETE' });
+        } catch (e) {
+            console.error('Stop watch failed:', e);
+        }
+        watchingQuote = false;
+        btn.textContent = 'Watch';
+        btn.classList.remove('btn-active');
+        disconnectSSE();
+        return;
+    }
+
+    // Start watching
+    const symbol = document.getElementById('quote-symbol').value.trim().toUpperCase();
+    if (!symbol) {
+        alert('Please enter a symbol');
+        return;
+    }
+
+    try {
+        // Fetch initial quote first
+        await fetchQuote();
+
+        const response = await fetch(`/api/quote/${symbol}/watch`, { method: 'POST' });
+        const data = await response.json();
+
+        if (data.success) {
+            watchingQuote = true;
+            btn.textContent = 'Stop';
+            btn.classList.add('btn-active');
+            connectSSE();
+        } else {
+            alert('Failed to start watch: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Start watch failed:', error);
+        alert('Failed to start watch: ' + error.message);
     }
 }
 

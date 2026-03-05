@@ -47,7 +47,8 @@ class OrderMonitor:
 
     def _emit(self, event):
         """Send event to all SSE listeners."""
-        logger.info(f"Monitor event: {event.get('type')} order={event.get('order_id')}")
+        if event.get('type') != 'quote':
+            logger.info(f"Monitor event: {event.get('type')} order={event.get('order_id')}")
         with self._sse_lock:
             dead = []
             for q in self._sse_clients:
@@ -71,6 +72,87 @@ class OrderMonitor:
                 self._monitors[key]['stop'] = True
                 del self._monitors[key]
                 logger.info(f"Stopped monitoring order {order_id}")
+
+    # ==================== Quote Streaming ====================
+
+    def start_quote_watch(self, symbol, get_client_fn, interval=3):
+        """
+        Start streaming quotes for a symbol via polling + SSE.
+
+        Args:
+            symbol: Ticker symbol to watch
+            get_client_fn: Callable returning authenticated ETradeClient
+            interval: Seconds between polls (default 3)
+        """
+        key = f"quote:{symbol.upper()}"
+        with self._lock:
+            # Stop existing watch for any symbol
+            for k in list(self._monitors.keys()):
+                if k.startswith('quote:'):
+                    self._monitors[k]['stop'] = True
+                    del self._monitors[k]
+
+            stop_flag = {'stop': False}
+            self._monitors[key] = stop_flag
+
+        symbol = symbol.upper()
+        logger.info(f"[QuoteWatch] Starting quote stream for {symbol}")
+
+        def run():
+            while not stop_flag['stop']:
+                try:
+                    client = get_client_fn()
+                    quote = client.get_quote(symbol)
+
+                    if quote and 'All' in quote and quote['All'] is not None:
+                        all_data = quote['All']
+                        quote_event = {
+                            'type': 'quote',
+                            'symbol': symbol,
+                            'last_price': all_data.get('lastTrade'),
+                            'bid': all_data.get('bid'),
+                            'ask': all_data.get('ask'),
+                            'bid_size': all_data.get('bidSize'),
+                            'ask_size': all_data.get('askSize'),
+                            'change': all_data.get('changeClose'),
+                            'change_percent': all_data.get('changeClosePercentage'),
+                            'volume': all_data.get('totalVolume'),
+                            'high': all_data.get('high'),
+                            'low': all_data.get('low'),
+                            'open': all_data.get('open'),
+                            'previous_close': all_data.get('previousClose')
+                        }
+                        self._emit(quote_event)
+
+                except Exception as e:
+                    err_msg = str(e)
+                    if '500' in err_msg or 'not currently available' in err_msg:
+                        logger.debug(f"[QuoteWatch] API error for {symbol}, retrying...")
+                    else:
+                        logger.error(f"[QuoteWatch] Error fetching quote for {symbol}: {e}")
+
+                time.sleep(interval)
+
+            logger.info(f"[QuoteWatch] Stopped quote stream for {symbol}")
+
+        t = threading.Thread(target=run, daemon=True, name=f"quote-watch-{symbol}")
+        t.start()
+
+    def stop_quote_watch(self):
+        """Stop watching quotes."""
+        with self._lock:
+            for k in list(self._monitors.keys()):
+                if k.startswith('quote:'):
+                    self._monitors[k]['stop'] = True
+                    del self._monitors[k]
+                    logger.info(f"[QuoteWatch] Stopped {k}")
+
+    def is_watching_quote(self):
+        """Check if any quote is being watched."""
+        with self._lock:
+            return any(k.startswith('quote:') for k in self._monitors)
+
+    # ==================== Order Monitoring ====================
 
     def monitor_profit_target(self, order_id, config, get_client_fn,
                               pending_orders_dict):

@@ -479,6 +479,30 @@ def get_quote(symbol):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/quote/<symbol>/watch', methods=['POST'])
+def start_quote_watch(symbol):
+    """Start streaming quotes for a symbol via SSE."""
+    try:
+        monitor = get_order_monitor()
+        monitor.start_quote_watch(symbol.upper(), _get_authenticated_client)
+        return jsonify({'success': True, 'symbol': symbol.upper(), 'watching': True})
+    except Exception as e:
+        logger.error(f"Start quote watch failed: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/quote/watch', methods=['DELETE'])
+def stop_quote_watch():
+    """Stop streaming quotes."""
+    try:
+        monitor = get_order_monitor()
+        monitor.stop_quote_watch()
+        return jsonify({'success': True, 'watching': False})
+    except Exception as e:
+        logger.error(f"Stop quote watch failed: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ==================== ORDER API ====================
 
 @app.route('/api/orders/preview', methods=['POST'])
