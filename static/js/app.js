@@ -98,9 +98,14 @@ function handleSSEEvent(data) {
             break;
 
         case 'timeout':
+            // Timeout fires before cancel completes — keep SSE open for cancelled event
+            updateOrderStatus(data.message, 'warning');
+            break;
+
         case 'cancelled':
             updateOrderStatus(data.message, 'error');
-            loadOrders(currentAccountIdKey);
+            // Delay refresh so E*TRADE has time to process the cancel
+            setTimeout(() => loadOrders(currentAccountIdKey), 2000);
             activeMonitorOrderId = null;
             disconnectSSE();
             break;
