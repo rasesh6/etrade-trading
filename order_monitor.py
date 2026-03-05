@@ -199,11 +199,12 @@ class OrderMonitor:
                         all_orders = client.get_orders(account_id_key, status=None)
                     except Exception as api_err:
                         if '500' in str(api_err) or 'not currently available' in str(api_err):
+                            logger.debug(f"[Monitor] API error checking order {order_id}, retrying...")
                             elapsed += 1
                             self._emit({
                                 'type': 'status',
                                 'order_id': order_id,
-                                'message': f'API error, retrying... ({elapsed}/{fill_timeout}s)',
+                                'message': f'Waiting for fill... ({elapsed}/{fill_timeout}s)',
                                 'elapsed': elapsed,
                                 'timeout': fill_timeout
                             })
@@ -386,7 +387,7 @@ class OrderMonitor:
                                     'type': 'ts_status',
                                     'order_id': order_id,
                                     'state': 'waiting_fill',
-                                    'message': 'API error, retrying...'
+                                    'message': 'Waiting for fill...'
                                 })
                                 time.sleep(self.POLL_INTERVAL)
                                 continue
@@ -468,7 +469,7 @@ class OrderMonitor:
                                     'type': 'ts_status',
                                     'order_id': order_id,
                                     'state': 'waiting_confirmation',
-                                    'message': f'API error, retrying... ({confirm_elapsed}s)'
+                                    'message': f'Waiting for trigger... ({confirm_elapsed}s)'
                                 })
                                 time.sleep(self.POLL_INTERVAL)
                                 continue
@@ -605,7 +606,7 @@ class OrderMonitor:
                                     'type': 'tsl_status',
                                     'order_id': order_id,
                                     'state': 'waiting_fill',
-                                    'message': f'API error, retrying... ({fill_elapsed}/{fill_timeout}s)'
+                                    'message': f'Waiting for fill... ({fill_elapsed}/{fill_timeout}s)'
                                 })
                                 if fill_elapsed >= fill_timeout:
                                     self._emit({
@@ -720,7 +721,7 @@ class OrderMonitor:
                                     'type': 'tsl_status',
                                     'order_id': order_id,
                                     'state': 'waiting_trigger',
-                                    'message': f'API error, retrying... ({trigger_elapsed}/{trigger_timeout}s)'
+                                    'message': f'Waiting for trigger... ({trigger_elapsed}/{trigger_timeout}s)'
                                 })
                                 if trigger_elapsed >= trigger_timeout:
                                     self._emit({
