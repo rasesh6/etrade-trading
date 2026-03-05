@@ -17,7 +17,6 @@ document.addEventListener('DOMContentLoaded', () => {
     checkAuthStatus();
     setupEventListeners();
     updateOrderSummary();
-    connectSSE();
 });
 
 // ==================== SSE (Server-Sent Events) ====================
@@ -35,9 +34,16 @@ function connectSSE() {
     };
 
     eventSource.onerror = function() {
-        // Auto-reconnect is built into EventSource
         console.log('SSE connection error, will auto-reconnect...');
     };
+}
+
+function disconnectSSE() {
+    if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+        console.log('SSE disconnected');
+    }
 }
 
 function handleSSEEvent(data) {
@@ -79,6 +85,7 @@ function handleSSEEvent(data) {
             loadOrders(currentAccountIdKey);
             loadPositions(currentAccountIdKey);
             activeMonitorOrderId = null;
+            disconnectSSE();
             break;
 
         case 'timeout':
@@ -86,12 +93,14 @@ function handleSSEEvent(data) {
             updateOrderStatus(data.message, 'error');
             loadOrders(currentAccountIdKey);
             activeMonitorOrderId = null;
+            disconnectSSE();
             break;
 
         case 'error':
             updateOrderStatus(data.message, 'error');
             loadOrders(currentAccountIdKey);
             activeMonitorOrderId = null;
+            disconnectSSE();
             break;
 
         // Trailing stop events
@@ -123,18 +132,21 @@ function handleSSEEvent(data) {
             loadOrders(currentAccountIdKey);
             loadPositions(currentAccountIdKey);
             activeMonitorOrderId = null;
+            disconnectSSE();
             break;
 
         case 'ts_timeout':
             updateTrailingStopStatus('timeout', data.message);
             loadOrders(currentAccountIdKey);
             activeMonitorOrderId = null;
+            disconnectSSE();
             break;
 
         case 'ts_error':
             updateTrailingStopStatus('error', data.message);
             loadOrders(currentAccountIdKey);
             activeMonitorOrderId = null;
+            disconnectSSE();
             break;
 
         // TSL events
@@ -166,18 +178,21 @@ function handleSSEEvent(data) {
             loadOrders(currentAccountIdKey);
             loadPositions(currentAccountIdKey);
             activeMonitorOrderId = null;
+            disconnectSSE();
             break;
 
         case 'tsl_timeout':
             updateTrailingStopLimitStatus('timeout', data.message);
             loadOrders(currentAccountIdKey);
             activeMonitorOrderId = null;
+            disconnectSSE();
             break;
 
         case 'tsl_error':
             updateTrailingStopLimitStatus('error', data.message);
             loadOrders(currentAccountIdKey);
             activeMonitorOrderId = null;
+            disconnectSSE();
             break;
     }
 }
@@ -845,12 +860,13 @@ async function placeOrder() {
             loadOrders(currentAccountIdKey);  // Refresh orders list
 
             // Server-side monitoring handles fill detection via SSE.
-            // Just set activeMonitorOrderId so SSE events update the UI.
+            // Connect SSE and set activeMonitorOrderId so events update the UI.
             if (data.order.order_id && (enableConfirmationStop || enableTrailingStopLimit || enableProfitTarget)) {
                 activeMonitorOrderId = data.order.order_id;
                 const statusCard = document.getElementById('order-status-card');
                 statusCard.style.display = 'block';
                 updateOrderStatus('Server monitoring started...');
+                connectSSE();
             }
         } else {
             showResponse('error', 'Order Failed', { error: data.error });
